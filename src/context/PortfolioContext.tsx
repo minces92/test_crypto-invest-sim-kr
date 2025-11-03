@@ -1,13 +1,11 @@
-import React, { createContext, useState, useContext, ReactNode } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef } from 'react';
 
-// 보유 자산의 타입 정의
+// --- (기존 interface 정의들은 변경 없음) ---
 interface Asset {
   market: string;
   quantity: number;
   avg_buy_price: number;
 }
-
-// 거래 내역 타입 정의
 interface Transaction {
   id: string;
   type: 'buy' | 'sell';
@@ -17,23 +15,34 @@ interface Transaction {
   timestamp: string;
 }
 
-// Context가 제공할 값들의 타입 정의
+// DCA 설정 타입 정의
+interface DcaConfig {
+  isActive: boolean;
+  market?: string;
+  amount?: number;
+  interval?: 'daily' | 'weekly' | 'monthly';
+}
+
 interface PortfolioContextType {
   cash: number;
   assets: Asset[];
   transactions: Transaction[];
+  dcaConfig: DcaConfig;
   buyAsset: (market: string, price: number, amount: number) => boolean;
   sellAsset: (market: string, price: number, amount: number) => boolean;
+  startDCA: (market: string, amount: number, interval: string) => void;
+  stopDCA: () => void;
 }
 
-// Context 생성
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
-// Context를 제공하는 Provider 컴포넌트
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
-  const [cash, setCash] = useState(10000000); // 초기 자본 1,000만원
+  const [cash, setCash] = useState(10000000);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [dcaConfig, setDcaConfig] = useState<DcaConfig>({ isActive: false });
+
+  const dcaIntervalRef = useRef<NodeJS.Timeout | null>(null);
 
   const addTransaction = (type: 'buy' | 'sell', market: string, price: number, amount: number) => {
     const newTransaction: Transaction = {
@@ -50,29 +59,28 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const buyAsset = (market: string, price: number, amount: number): boolean => {
     const cost = price * amount;
     if (cash < cost) {
-      alert('현금이 부족합니다.');
+      console.error('DCA: 현금이 부족하여 매수를 중단합니다.');
+      stopDCA(); // 현금 부족 시 자동매매 중단
       return false;
     }
 
-    setCash(cash - cost);
+    setCash(prevCash => prevCash - cost);
     addTransaction('buy', market, price, amount);
 
-    const existingAssetIndex = assets.findIndex(a => a.market === market);
-
-    if (existingAssetIndex > -1) {
-      // 이미 보유한 자산인 경우
-      const existingAsset = assets[existingAssetIndex];
-      const totalQuantity = existingAsset.quantity + amount;
-      const totalCost = (existingAsset.avg_buy_price * existingAsset.quantity) + cost;
-      const newAvgBuyPrice = totalCost / totalQuantity;
-
-      const updatedAssets = [...assets];
-      updatedAssets[existingAssetIndex] = { ...existingAsset, quantity: totalQuantity, avg_buy_price: newAvgBuyPrice };
-      setAssets(updatedAssets);
-    } else {
-      // 신규 자산인 경우
-      setAssets([...assets, { market, quantity: amount, avg_buy_price: price }]);
-    }
+    setAssets(prevAssets => {
+      const existingAssetIndex = prevAssets.findIndex(a => a.market === market);
+      if (existingAssetIndex > -1) {
+        const existingAsset = prevAssets[existingAssetIndex];
+        const totalQuantity = existingAsset.quantity + amount;
+        const totalCost = (existingAsset.avg_buy_price * existingAsset.quantity) + cost;
+        const newAvgBuyPrice = totalCost / totalQuantity;
+        const updatedAssets = [...prevAssets];
+        updatedAssets[existingAssetIndex] = { ...existingAsset, quantity: totalQuantity, avg_buy_price: newAvgBuyPrice };
+        return updatedAssets;
+      } else {
+        return [...prevAssets, { market, quantity: amount, avg_buy_price: price }];
+      }
+    });
     return true;
   };
 
@@ -94,20 +102,57 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       );
       setAssets(updatedAssets);
     } else {
-      // 전량 매도한 경우
       setAssets(assets.filter(a => a.market !== market));
     }
     return true;
   };
 
+  const executeDcaBuy = async (market: string, krwAmount: number) => {
+    try {
+      const response = await fetch(`/api/tickers?markets=${market}`);
+      const data = await response.json();
+      if (data && data.length > 0) {
+        const currentPrice = data[0].trade_price;
+        const amountToBuy = krwAmount / currentPrice;
+        buyAsset(market, currentPrice, amountToBuy);
+      }
+    } catch (error) {
+      console.error('DCA execution failed:', error);
+    }
+  };
+
+  const startDCA = (market: string, amount: number, interval: string) => {
+    if (dcaIntervalRef.current) clearInterval(dcaIntervalRef.current);
+
+    const intervalMilliseconds = {
+      daily: 24 * 60 * 60 * 1000,
+      weekly: 7 * 24 * 60 * 60 * 1000,
+      monthly: 30 * 24 * 60 * 60 * 1000,
+    }[interval] || 24 * 60 * 60 * 1000; // 기본값: daily
+
+    // 즉시 1회 실행
+    executeDcaBuy(market, amount);
+
+    const intervalId = setInterval(() => executeDcaBuy(market, amount), intervalMilliseconds);
+    dcaIntervalRef.current = intervalId;
+    setDcaConfig({ isActive: true, market, amount, interval: interval as DcaConfig['interval'] });
+  };
+
+  const stopDCA = () => {
+    if (dcaIntervalRef.current) {
+      clearInterval(dcaIntervalRef.current);
+      dcaIntervalRef.current = null;
+    }
+    setDcaConfig({ isActive: false });
+  };
+
   return (
-    <PortfolioContext.Provider value={{ cash, assets, transactions, buyAsset, sellAsset }}>
+    <PortfolioContext.Provider value={{ cash, assets, transactions, dcaConfig, buyAsset, sellAsset, startDCA, stopDCA }}>
       {children}
     </PortfolioContext.Provider>
   );
 };
 
-// Context를 쉽게 사용하기 위한 커스텀 훅
 export const usePortfolio = () => {
   const context = useContext(PortfolioContext);
   if (context === undefined) {

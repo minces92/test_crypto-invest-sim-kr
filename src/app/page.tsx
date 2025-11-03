@@ -2,6 +2,7 @@ import Header from "@/components/Header";
 import Portfolio from "@/components/Portfolio";
 import CryptoTable from "@/components/CryptoTable";
 import TransactionHistory from "@/components/TransactionHistory";
+import AutoTrader from "@/components/AutoTrader";
 
 export default function Home() {
   return (
@@ -11,6 +12,7 @@ export default function Home() {
         <div className="row">
           <div className="col-md-4">
             <Portfolio />
+            <AutoTrader />
           </div>
           <div className="col-md-8">
             <CryptoTable />

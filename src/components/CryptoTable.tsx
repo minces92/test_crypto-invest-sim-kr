@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import TradeModal from './TradeModal'; // TradeModal 임포트
 
 interface Ticker {
   market: string;
@@ -12,6 +13,8 @@ export default function CryptoTable() {
   const [tickers, setTickers] = useState<Ticker[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showModal, setShowModal] = useState(false);
+  const [selectedTicker, setSelectedTicker] = useState<Ticker | null>(null);
 
   useEffect(() => {
     async function fetchTickers() {
@@ -39,6 +42,16 @@ export default function CryptoTable() {
     return () => clearInterval(interval);
   }, []);
 
+  const handleOpenModal = (ticker: Ticker) => {
+    setSelectedTicker(ticker);
+    setShowModal(true);
+  };
+
+  const handleCloseModal = () => {
+    setSelectedTicker(null);
+    setShowModal(false);
+  };
+
   const getMarketName = (market: string) => {
     const names: { [key: string]: string } = {
       'KRW-BTC': '비트코인',
@@ -50,36 +63,40 @@ export default function CryptoTable() {
   };
 
   return (
-    <div className="card">
-      <div className="card-header">
-        <h2>실시간 시세</h2>
-      </div>
-      <div className="card-body">
-        <table className="table table-hover">
-          <thead>
-            <tr>
-              <th>자산</th>
-              <th>가격 (KRW)</th>
-              <th>24시간 변동</th>
-              <th>거래</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading && <tr><td colSpan={4} className="text-center">로딩 중...</td></tr>}
-            {error && <tr><td colSpan={4} className="text-center text-danger">데이터를 불러오는 데 실패했습니다: {error}</td></tr>}
-            {!loading && !error && tickers.map((ticker) => (
-              <tr key={ticker.market}>
-                <td>{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')})</td>
-                <td>{ticker.trade_price.toLocaleString('ko-KR')}</td>
-                <td className={ticker.signed_change_rate >= 0 ? 'text-success' : 'text-danger'}>
-                  {(ticker.signed_change_rate * 100).toFixed(2)}%
-                </td>
-                <td><button className="btn btn-primary btn-sm">거래</button></td>
+    <>
+      <div className="card">
+        <div className="card-header">
+          <h2>실시간 시세</h2>
+        </div>
+        <div className="card-body">
+          <table className="table table-hover">
+            <thead>
+              <tr>
+                <th>자산</th>
+                <th>가격 (KRW)</th>
+                <th>24시간 변동</th>
+                <th>거래</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading && <tr><td colSpan={4} className="text-center">로딩 중...</td></tr>}
+              {error && <tr><td colSpan={4} className="text-center text-danger">데이터를 불러오는 데 실패했습니다: {error}</td></tr>}
+              {!loading && !error && tickers.map((ticker) => (
+                <tr key={ticker.market}>
+                  <td>{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')})</td>
+                  <td>{ticker.trade_price.toLocaleString('ko-KR')}</td>
+                  <td className={ticker.signed_change_rate >= 0 ? 'text-success' : 'text-danger'}>
+                    {(ticker.signed_change_rate * 100).toFixed(2)}%
+                  </td>
+                  <td><button className="btn btn-primary btn-sm" onClick={() => handleOpenModal(ticker)}>거래</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+
+      <TradeModal show={showModal} handleClose={handleCloseModal} ticker={selectedTicker} />
+    </>
   );
 }

@@ -1,7 +1,6 @@
-'use client';
-
 import { usePortfolio } from '@/context/PortfolioContext';
 import { useState, useEffect } from 'react';
+import ChartComponent from './ChartComponent'; // 차트 컴포넌트 임포트
 
 interface Ticker {
   market: string;
@@ -29,6 +28,13 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
       setTotal(0);
     }
   }, [amount, ticker]);
+
+  // 모달이 닫힐 때 amount 초기화
+  useEffect(() => {
+    if (!show) {
+      setAmount('');
+    }
+  }, [show]);
 
   if (!show || !ticker) return null;
 
@@ -81,7 +87,10 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
             <button type="button" className="btn-close" onClick={handleClose}></button>
           </div>
           <div className="modal-body">
-            <ul className="nav nav-pills nav-fill mb-3">
+            
+            <ChartComponent market={ticker.market} />
+
+            <ul className="nav nav-pills nav-fill my-3">
               <li className="nav-item">
                 <a className={`nav-link ${orderType === 'buy' ? 'active' : ''}`} href="#" onClick={() => setOrderType('buy')}>매수</a>
               </li>

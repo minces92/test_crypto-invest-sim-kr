@@ -1,6 +1,7 @@
 import Header from "@/components/Header";
 import Portfolio from "@/components/Portfolio";
 import CryptoTable from "@/components/CryptoTable";
+import TransactionHistory from "@/components/TransactionHistory";
 
 export default function Home() {
   return (
@@ -13,6 +14,7 @@ export default function Home() {
           </div>
           <div className="col-md-8">
             <CryptoTable />
+            <TransactionHistory />
           </div>
         </div>
       </main>

@@ -58,6 +58,16 @@ export default function CryptoTable() {
       'KRW-ETH': '이더리움',
       'KRW-XRP': '리플',
       'KRW-DOGE': '도지코인',
+      'KRW-SOL': '솔라나',
+      'KRW-ADA': '에이다',
+      'KRW-AVAX': '아발란체',
+      'KRW-DOT': '폴카닷',
+      'KRW-MATIC': '폴리곤',
+      'KRW-TRX': '트론',
+      'KRW-SHIB': '시바이누',
+      'KRW-ETC': '이더리움 클래식',
+      'KRW-BCH': '비트코인 캐시',
+      'KRW-LINK': '체인링크',
     };
     return names[market] || market;
   };

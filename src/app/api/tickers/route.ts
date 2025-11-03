@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 export async function GET() {
   try {
     // KRW 마켓의 주요 코인 목록
-    const markets = 'KRW-BTC,KRW-ETH,KRW-XRP,KRW-DOGE';
+    const markets = 'KRW-BTC,KRW-ETH,KRW-XRP,KRW-DOGE,KRW-SOL,KRW-ADA,KRW-AVAX,KRW-DOT,KRW-MATIC,KRW-TRX,KRW-SHIB,KRW-ETC,KRW-BCH,KRW-LINK';
     const response = await fetch(`https://api.upbit.com/v1/ticker?markets=${markets}`);
 
     if (!response.ok) {

@@ -1,5 +1,3 @@
-'use client';
-
 import React, { createContext, useState, useContext, ReactNode } from 'react';
 
 // 보유 자산의 타입 정의
@@ -9,10 +7,21 @@ interface Asset {
   avg_buy_price: number;
 }
 
+// 거래 내역 타입 정의
+interface Transaction {
+  id: string;
+  type: 'buy' | 'sell';
+  market: string;
+  price: number;
+  amount: number;
+  timestamp: string;
+}
+
 // Context가 제공할 값들의 타입 정의
 interface PortfolioContextType {
   cash: number;
   assets: Asset[];
+  transactions: Transaction[];
   buyAsset: (market: string, price: number, amount: number) => boolean;
   sellAsset: (market: string, price: number, amount: number) => boolean;
 }
@@ -24,6 +33,19 @@ const PortfolioContext = createContext<PortfolioContextType | undefined>(undefin
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [cash, setCash] = useState(10000000); // 초기 자본 1,000만원
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+
+  const addTransaction = (type: 'buy' | 'sell', market: string, price: number, amount: number) => {
+    const newTransaction: Transaction = {
+      id: new Date().toISOString() + Math.random(),
+      type,
+      market,
+      price,
+      amount,
+      timestamp: new Date().toISOString(),
+    };
+    setTransactions(prev => [newTransaction, ...prev]);
+  };
 
   const buyAsset = (market: string, price: number, amount: number): boolean => {
     const cost = price * amount;
@@ -33,6 +55,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     }
 
     setCash(cash - cost);
+    addTransaction('buy', market, price, amount);
+
     const existingAssetIndex = assets.findIndex(a => a.market === market);
 
     if (existingAssetIndex > -1) {
@@ -61,6 +85,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
     const income = price * amount;
     setCash(cash + income);
+    addTransaction('sell', market, price, amount);
 
     const remainingQuantity = existingAsset.quantity - amount;
     if (remainingQuantity > 0) {
@@ -76,7 +101,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   };
 
   return (
-    <PortfolioContext.Provider value={{ cash, assets, buyAsset, sellAsset }}>
+    <PortfolioContext.Provider value={{ cash, assets, transactions, buyAsset, sellAsset }}>
       {children}
     </PortfolioContext.Provider>
   );

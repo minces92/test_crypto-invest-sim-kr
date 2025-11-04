@@ -60,13 +60,13 @@ export default function AutoTrader() {
   };
 
   return (
-    <div className="Box mt-4">
-      <div className="Box-header">
+    <div className="Box mt-4 p-3 border">
+      <div className="Box-header text-center">
         <h2 className="Box-title">자동 매매</h2>
       </div>
       <div className="Box-body">
-        <form onSubmit={handleAddStrategy}>
-          <div className="form-group mb-3">
+        <form onSubmit={handleAddStrategy} className="d-flex flex-column flex-items-center">
+          <div className="form-group mb-3 col-8">
             <div className="form-group-header"><label htmlFor="strategy-select">전략 선택</label></div>
             <div className="form-group-body"><select id="strategy-select" className="form-select" value={strategyType} onChange={e => setStrategyType(e.target.value)}>
               <option value="dca">적립식 (DCA)</option>
@@ -75,7 +75,7 @@ export default function AutoTrader() {
             </select></div>
           </div>
 
-          <div className="form-group mb-3">
+          <div className="form-group mb-3 col-8">
             <div className="form-group-header"><label htmlFor="market-select">코인 선택</label></div>
             <div className="form-group-body"><select id="market-select" className="form-select" value={market} onChange={e => setMarket(e.target.value)}>
               {availableMarkets.map(m => <option key={m} value={m}>{m.replace('KRW-','')}</option>)}
@@ -84,7 +84,7 @@ export default function AutoTrader() {
 
           {strategyType === 'dca' && (
             <>
-              <div className="form-group mb-3">
+              <div className="form-group mb-3 col-8">
                 <div className="form-group-header"><label htmlFor="dca-interval-select">매수 주기</label></div>
                 <div className="form-group-body"><select id="dca-interval-select" className="form-select" value={dcaInterval} onChange={e => setDcaInterval(e.target.value)}>
                   <option value="daily">매일 (24초)</option>
@@ -92,7 +92,7 @@ export default function AutoTrader() {
                   <option value="monthly">매월 (5분)</option>
                 </select></div>
               </div>
-              <div className="form-group mb-3">
+              <div className="form-group mb-3 col-8">
                 <div className="form-group-header"><label htmlFor="dca-amount-input">1회 매수 금액(원)</label></div>
                 <div className="form-group-body"><input id="dca-amount-input" type="number" className="form-control" value={dcaAmount} onChange={e => setDcaAmount(e.target.value)} step="1000" /></div>
               </div>
@@ -101,11 +101,11 @@ export default function AutoTrader() {
 
           {strategyType === 'ma' && (
             <>
-              <div className="form-group mb-3">
+              <div className="form-group mb-3 col-8">
                 <div className="form-group-header"><label htmlFor="ma-short-period-input">단기 이평선</label></div>
                 <div className="form-group-body"><input id="ma-short-period-input" type="number" className="form-control" value={maShortPeriod} onChange={e => setMaShortPeriod(e.target.value)} /></div>
               </div>
-              <div className="form-group mb-3">
+              <div className="form-group mb-3 col-8">
                 <div className="form-group-header"><label htmlFor="ma-long-period-input">장기 이평선</label></div>
                 <div className="form-group-body"><input id="ma-long-period-input" type="number" className="form-control" value={maLongPeriod} onChange={e => setMaLongPeriod(e.target.value)} /></div>
               </div>
@@ -114,40 +114,44 @@ export default function AutoTrader() {
 
           {strategyType === 'rsi' && (
             <>
-              <div className="form-group mb-3">
+              <div className="form-group mb-3 col-8">
                 <div className="form-group-header"><label htmlFor="rsi-period-input">RSI 기간</label></div>
                 <div className="form-group-body"><input id="rsi-period-input" type="number" className="form-control" value={rsiPeriod} onChange={e => setRsiPeriod(e.target.value)} /></div>
               </div>
-              <div className="form-group mb-3">
+              <div className="form-group mb-3 col-8">
                 <div className="form-group-header"><label htmlFor="rsi-buy-threshold-input">과매도 기준 (매수)</label></div>
                 <div className="form-group-body"><input id="rsi-buy-threshold-input" type="number" className="form-control" value={rsiBuyThreshold} onChange={e => setRsiBuyThreshold(e.target.value)} /></div>
               </div>
-              <div className="form-group mb-3">
+              <div className="form-group mb-3 col-8">
                 <div className="form-group-header"><label htmlFor="rsi-sell-threshold-input">과매수 기준 (매도)</label></div>
                 <div className="form-group-body"><input id="rsi-sell-threshold-input" type="number" className="form-control" value={rsiSellThreshold} onChange={e => setRsiSellThreshold(e.target.value)} /></div>
               </div>
             </>
           )}
 
-          <div className="d-flex flex-justify-end">
+          <div className="d-flex flex-justify-center mt-3">
             <button type="submit" className="btn btn-primary">전략 추가</button>
           </div>
         </form>
 
-        <hr className="my-3" />
+        <hr className="my-4" />
 
-        <h3 className="f4 mb-2">실행 중인 전략</h3>
+        <div className="text-center">
+          <h3 className="f4 mb-3">실행 중인 전략</h3>
+        </div>
         {strategies.length === 0 ? (
-          <p className="color-fg-muted">실행 중인 전략이 없습니다.</p>
+          <p className="color-fg-muted text-center">실행 중인 전략이 없습니다.</p>
         ) : (
           <ul className="list-style-none p-0 m-0">
             {strategies.map(s => (
               <li key={s.id} className="d-flex flex-justify-between flex-items-center py-2 border-bottom">
-                <div>
-                  <strong>{s.market.replace('KRW-','')}</strong> - 
-                  {s.strategyType === 'dca' && `적립식 (${s.amount.toLocaleString()}원 / ${s.interval})`}
-                  {s.strategyType === 'ma' && `이평선 교차 (${s.shortPeriod} / ${s.longPeriod})`}
-                  {s.strategyType === 'rsi' && `RSI (${s.period}, ${s.buyThreshold}/${s.sellThreshold})`}
+                <div className="col-9">
+                  <strong>{s.market.replace('KRW-','')}</strong>
+                  <span className="d-block color-fg-muted text-small">
+                    {s.strategyType === 'dca' && `적립식 (${s.amount.toLocaleString()}원 / ${s.interval})`}
+                    {s.strategyType === 'ma' && `이평선 교차 (${s.shortPeriod} / ${s.longPeriod})`}
+                    {s.strategyType === 'rsi' && `RSI (${s.period}, ${s.buyThreshold}/${s.sellThreshold})`}
+                  </span>
                 </div>
                 <button className="btn btn-danger btn-sm" onClick={() => stopStrategy(s.id)}>중지</button>
               </li>

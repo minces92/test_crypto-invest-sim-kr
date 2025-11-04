@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useRef, useEffect } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
 import { calculateSMA, calculateRSI } from '@/lib/utils';
 
 // --- Interface 정의들 ---
@@ -54,9 +54,9 @@ interface PortfolioContextType {
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
+const INITIAL_CASH = 10000000;
+
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
-  const [cash, setCash] = useState(10000000);
-  const [assets, setAssets] = useState<Asset[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
 
@@ -72,8 +72,67 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         console.error('Error fetching transactions:', error);
       }
     };
+    const fetchStrategies = async () => {
+      try {
+        const response = await fetch('/api/strategies');
+        const data = await response.json();
+        setStrategies(data);
+        data.forEach((s: Strategy) => {
+          if (s.isActive) {
+            let intervalMilliseconds = 30000;
+            if (s.strategyType === 'dca') {
+              intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[s.interval] || 24000;
+            }
+            const intervalId = setInterval(() => executeStrategy(s), intervalMilliseconds);
+            strategyIntervalsRef.current[s.id] = intervalId;
+          }
+        });
+      } catch (error) {
+        console.error('Error fetching strategies:', error);
+      }
+    };
     fetchTransactions();
+    fetchStrategies();
   }, []);
+
+  const { assets, cash } = useMemo(() => {
+    let calculatedCash = INITIAL_CASH;
+    const calculatedAssets: { [market: string]: Asset } = {};
+
+    // Process transactions in reverse order (oldest first)
+    for (let i = transactions.length - 1; i >= 0; i--) {
+      const tx = transactions[i];
+      if (tx.type === 'buy') {
+        calculatedCash -= tx.price * tx.amount;
+        if (calculatedAssets[tx.market]) {
+          const existingAsset = calculatedAssets[tx.market];
+          const totalQuantity = existingAsset.quantity + tx.amount;
+          const totalCost = (existingAsset.avg_buy_price * existingAsset.quantity) + (tx.price * tx.amount);
+          calculatedAssets[tx.market] = {
+            ...existingAsset,
+            quantity: totalQuantity,
+            avg_buy_price: totalCost / totalQuantity,
+          };
+        } else {
+          calculatedAssets[tx.market] = {
+            market: tx.market,
+            quantity: tx.amount,
+            avg_buy_price: tx.price,
+          };
+        }
+      } else { // sell
+        calculatedCash += tx.price * tx.amount;
+        if (calculatedAssets[tx.market]) {
+          calculatedAssets[tx.market].quantity -= tx.amount;
+        }
+      }
+    }
+
+    return { 
+      assets: Object.values(calculatedAssets).filter(a => a.quantity > 0.00001),
+      cash: calculatedCash,
+    };
+  }, [transactions]);
 
   const addTransaction = async (type: 'buy' | 'sell', market: string, price: number, amount: number) => {
     const newTransaction: Transaction = {
@@ -108,24 +167,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       console.error('현금이 부족하여 매수할 수 없습니다.');
       return false;
     }
-
-    setCash(prevCash => prevCash - cost);
     addTransaction('buy', market, price, amount);
-
-    setAssets(prevAssets => {
-      const existingAssetIndex = prevAssets.findIndex(a => a.market === market);
-      if (existingAssetIndex > -1) {
-        const existingAsset = prevAssets[existingAssetIndex];
-        const totalQuantity = existingAsset.quantity + amount;
-        const totalCost = (existingAsset.avg_buy_price * existingAsset.quantity) + cost;
-        const newAvgBuyPrice = totalCost / totalQuantity;
-        const updatedAssets = [...prevAssets];
-        updatedAssets[existingAssetIndex] = { ...existingAsset, quantity: totalQuantity, avg_buy_price: newAvgBuyPrice };
-        return updatedAssets;
-      } else {
-        return [...prevAssets, { market, quantity: amount, avg_buy_price: price }];
-      }
-    });
     return true;
   };
 
@@ -135,20 +177,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       console.error('매도할 수량이 부족합니다.');
       return false;
     }
-
-    const income = price * amount;
-    setCash(prevCash => prevCash + income);
     addTransaction('sell', market, price, amount);
-
-    const remainingQuantity = existingAsset.quantity - amount;
-    if (remainingQuantity > 0.00001) { // 부동소수점 오차 감안
-      const updatedAssets = assets.map(a => 
-        a.market === market ? { ...a, quantity: remainingQuantity } : a
-      );
-      setAssets(updatedAssets);
-    } else {
-      setAssets(assets.filter(a => a.market !== market));
-    }
     return true;
   };
 
@@ -227,31 +256,57 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const startStrategy = (strategyConfig: Omit<Strategy, 'id' | 'isActive'>) => {
+  const startStrategy = async (strategyConfig: Omit<Strategy, 'id' | 'isActive'>) => {
     const newStrategy: Strategy = {
       ...strategyConfig,
       id: new Date().toISOString() + Math.random(),
       isActive: true,
     };
 
-    let intervalMilliseconds = 30000; // default for MA
-    if (newStrategy.strategyType === 'dca') {
-      intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[newStrategy.interval] || 24000;
-    }
+    try {
+      const response = await fetch('/api/strategies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newStrategy),
+      });
+      const savedStrategy = await response.json();
+      setStrategies(prev => [...prev, savedStrategy]);
 
-    executeStrategy(newStrategy);
-    const intervalId = setInterval(() => executeStrategy(newStrategy), intervalMilliseconds);
-    strategyIntervalsRef.current[newStrategy.id] = intervalId;
-    setStrategies(prev => [...prev, newStrategy]);
+      let intervalMilliseconds = 30000; // default for MA
+      if (savedStrategy.strategyType === 'dca') {
+        intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[savedStrategy.interval] || 24000;
+      }
+  
+      executeStrategy(savedStrategy);
+      const intervalId = setInterval(() => executeStrategy(savedStrategy), intervalMilliseconds);
+      strategyIntervalsRef.current[savedStrategy.id] = intervalId;
+
+    } catch (error) {
+      console.error('Error saving strategy:', error);
+    }
   };
 
-  const stopStrategy = (strategyId: string) => {
+  const stopStrategy = async (strategyId: string) => {
     const intervalId = strategyIntervalsRef.current[strategyId];
     if (intervalId) {
       clearInterval(intervalId);
       delete strategyIntervalsRef.current[strategyId];
     }
     setStrategies(prev => prev.filter(s => s.id !== strategyId));
+
+    try {
+      await fetch('/api/strategies', {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ id: strategyId }),
+      });
+    } catch (error) {
+      console.error('Error deleting strategy:', error);
+    }
   };
 
   return (

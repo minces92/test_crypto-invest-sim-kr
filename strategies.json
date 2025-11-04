@@ -1,0 +1,27 @@
+[
+  {
+    "strategyType": "dca",
+    "market": "KRW-BTC",
+    "amount": 10000,
+    "interval": "daily",
+    "id": "2025-11-04T04:11:22.166Z0.8309732129265126",
+    "isActive": true
+  },
+  {
+    "strategyType": "ma",
+    "market": "KRW-BTC",
+    "shortPeriod": 5,
+    "longPeriod": 20,
+    "id": "2025-11-04T04:11:30.614Z0.2212166818464386",
+    "isActive": true
+  },
+  {
+    "strategyType": "rsi",
+    "market": "KRW-BTC",
+    "period": 14,
+    "buyThreshold": 30,
+    "sellThreshold": 70,
+    "id": "2025-11-04T04:11:35.999Z0.8512843256603637",
+    "isActive": true
+  }
+]

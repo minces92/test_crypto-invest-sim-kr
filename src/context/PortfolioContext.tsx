@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useState, useContext, ReactNode, useRef } from 'react';
-import { calculateSMA } from '@/lib/utils';
+import { calculateSMA, calculateRSI } from '@/lib/utils';
 
 // --- Interface 정의들 ---
 interface Asset {
@@ -18,30 +18,38 @@ interface Transaction {
   timestamp: string;
 }
 interface DcaConfig {
-  isActive: boolean;
-  market?: string;
-  amount?: number;
-  interval?: string;
+  strategyType: 'dca';
+  market: string;
+  amount: number;
+  interval: string;
 }
+
 interface MaConfig {
-  isActive: boolean;
-  market?: string;
-  shortPeriod?: number;
-  longPeriod?: number;
+  strategyType: 'ma';
+  market: string;
+  shortPeriod: number;
+  longPeriod: number;
 }
+
+interface RsiConfig {
+  strategyType: 'rsi';
+  market: string;
+  period: number;
+  buyThreshold: number;
+  sellThreshold: number;
+}
+
+export type Strategy = (DcaConfig | MaConfig | RsiConfig) & { id: string; isActive: boolean };
 
 interface PortfolioContextType {
   cash: number;
   assets: Asset[];
   transactions: Transaction[];
-  dcaConfig: DcaConfig;
-  maConfig: MaConfig;
+  strategies: Strategy[];
   buyAsset: (market: string, price: number, amount: number) => boolean;
   sellAsset: (market: string, price: number, amount: number) => boolean;
-  startDCA: (market: string, amount: number, interval: string) => void;
-  stopDCA: () => void;
-  startMA: (market: string, shortPeriod: number, longPeriod: number) => void;
-  stopMA: () => void;
+  startStrategy: (strategy: Omit<Strategy, 'id' | 'isActive'>) => void;
+  stopStrategy: (strategyId: string) => void;
 }
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
@@ -50,10 +58,9 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [cash, setCash] = useState(10000000);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-  const [dcaConfig, setDcaConfig] = useState<DcaConfig>({ isActive: false });
-  const [maConfig, setMaConfig] = useState<MaConfig>({ isActive: false });
+  const [strategies, setStrategies] = useState<Strategy[]>([]);
 
-  const tradeIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const strategyIntervalsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
   const addTransaction = (type: 'buy' | 'sell', market: string, price: number, amount: number) => {
     const newTransaction: Transaction = {
@@ -71,8 +78,6 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     const cost = price * amount;
     if (cash < cost) {
       console.error('현금이 부족하여 매수할 수 없습니다.');
-      if (dcaConfig.isActive) stopDCA();
-      if (maConfig.isActive) stopMA();
       return false;
     }
 
@@ -119,95 +124,110 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     return true;
   };
 
-  // --- DCA Strategy ---
-  const executeDcaBuy = async (market: string, krwAmount: number) => {
-    try {
-      const response = await fetch(`/api/tickers?markets=${market}`);
-      const data = await response.json();
-      if (data && data.length > 0) {
-        const currentPrice = data[0].trade_price;
-        const amountToBuy = krwAmount / currentPrice;
-        buyAsset(market, currentPrice, amountToBuy);
-      }
-    } catch (error) { console.error('DCA 실행 실패:', error); }
-  };
+  // --- Strategy Execution ---
+  const executeStrategy = async (strategy: Strategy) => {
+    if (!strategy.isActive) return;
 
-  const startDCA = (market: string, amount: number, interval: string) => {
-    stopMA(); // 다른 전략 중지
-    if (tradeIntervalRef.current) clearInterval(tradeIntervalRef.current);
-
-    const intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[interval] || 24000;
-    executeDcaBuy(market, amount);
-    const intervalId = setInterval(() => executeDcaBuy(market, amount), intervalMilliseconds);
-    tradeIntervalRef.current = intervalId;
-    setDcaConfig({ isActive: true, market, amount, interval });
-  };
-
-  const stopDCA = () => {
-    if (tradeIntervalRef.current && dcaConfig.isActive) {
-      clearInterval(tradeIntervalRef.current);
-      tradeIntervalRef.current = null;
-    }
-    setDcaConfig({ isActive: false });
-  };
-
-  // --- MA Crossover Strategy ---
-  const executeMaCross = async (market: string, shortPeriod: number, longPeriod: number) => {
-    try {
-      const response = await fetch(`/api/candles?market=${market}&count=${longPeriod + 2}`);
-      const candles = await response.json();
-      if (candles.length < longPeriod + 2) return; // 데이터 부족
-
-      const reversedCandles = [...candles].reverse(); // 시간순으로 정렬
-      const shortSMA = calculateSMA(reversedCandles, shortPeriod);
-      const longSMA = calculateSMA(reversedCandles, longPeriod);
-
-      const lastShort = shortSMA[shortSMA.length - 1];
-      const prevShort = shortSMA[shortSMA.length - 2];
-      const lastLong = longSMA[longSMA.length - (longPeriod - shortPeriod) - 1];
-      const prevLong = longSMA[longSMA.length - (longPeriod - shortPeriod) - 2];
-
-      // Golden Cross: 단기 > 장기, 이전에는 단기 < 장기
-      if (lastShort > lastLong && prevShort <= prevLong) {
-        console.log(`[${market}] 골든크로스 발생! 매수 실행`);
-        const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
-        if (krwAmount > 5000) { // 최소 주문 금액
-          const amountToBuy = krwAmount / candles[0].trade_price;
-          buyAsset(market, candles[0].trade_price, amountToBuy);
+    if (strategy.strategyType === 'dca') {
+      try {
+        const response = await fetch(`/api/tickers?markets=${strategy.market}`);
+        const data = await response.json();
+        if (data && data.length > 0) {
+          const currentPrice = data[0].trade_price;
+          const amountToBuy = strategy.amount / currentPrice;
+          buyAsset(strategy.market, currentPrice, amountToBuy);
         }
-      } 
-      // Dead Cross: 단기 < 장기, 이전에는 단기 > 장기
-      else if (lastShort < lastLong && prevShort >= prevLong) {
-        console.log(`[${market}] 데드크로스 발생! 매도 실행`);
-        const assetToSell = assets.find(a => a.market === market);
-        if (assetToSell && assetToSell.quantity > 0) {
-          sellAsset(market, candles[0].trade_price, assetToSell.quantity); // 전량 매도
+      } catch (error) { console.error('DCA 실행 실패:', error); }
+    } else if (strategy.strategyType === 'ma') {
+      try {
+        const response = await fetch(`/api/candles?market=${strategy.market}&count=${strategy.longPeriod + 2}`);
+        const candles = await response.json();
+        if (candles.length < strategy.longPeriod + 2) return; // 데이터 부족
+
+        const reversedCandles = [...candles].reverse(); // 시간순으로 정렬
+        const shortSMA = calculateSMA(reversedCandles, strategy.shortPeriod);
+        const longSMA = calculateSMA(reversedCandles, strategy.longPeriod);
+
+        const lastShort = shortSMA[shortSMA.length - 1];
+        const prevShort = shortSMA[shortSMA.length - 2];
+        const lastLong = longSMA[longSMA.length - (strategy.longPeriod - strategy.shortPeriod) - 1];
+        const prevLong = longSMA[longSMA.length - (strategy.longPeriod - strategy.shortPeriod) - 2];
+
+        // Golden Cross
+        if (lastShort > lastLong && prevShort <= prevLong) {
+          console.log(`[${strategy.market}] 골든크로스 발생! 매수 실행`);
+          const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
+          if (krwAmount > 5000) {
+            const amountToBuy = krwAmount / candles[0].trade_price;
+            buyAsset(strategy.market, candles[0].trade_price, amountToBuy);
+          }
+        } 
+        // Dead Cross
+        else if (lastShort < lastLong && prevShort >= prevLong) {
+          console.log(`[${strategy.market}] 데드크로스 발생! 매도 실행`);
+          const assetToSell = assets.find(a => a.market === strategy.market);
+          if (assetToSell && assetToSell.quantity > 0) {
+            sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity);
+          }
         }
-      }
-    } catch (error) { console.error('MA 전략 실행 실패:', error); }
-  };
+      } catch (error) { console.error('MA 전략 실행 실패:', error); }
+    } else if (strategy.strategyType === 'rsi') {
+      try {
+        const response = await fetch(`/api/candles?market=${strategy.market}&count=${strategy.period + 1}`);
+        const candles = await response.json();
+        if (candles.length < strategy.period + 1) return; // 데이터 부족
 
-  const startMA = (market: string, shortPeriod: number, longPeriod: number) => {
-    stopDCA(); // 다른 전략 중지
-    if (tradeIntervalRef.current) clearInterval(tradeIntervalRef.current);
+        const reversedCandles = [...candles].reverse(); // 시간순으로 정렬
+        const rsi = calculateRSI(reversedCandles, strategy.period);
+        const lastRsi = rsi[rsi.length - 1];
 
-    const intervalMilliseconds = 30000; // 30초마다 확인
-    executeMaCross(market, shortPeriod, longPeriod);
-    const intervalId = setInterval(() => executeMaCross(market, shortPeriod, longPeriod), intervalMilliseconds);
-    tradeIntervalRef.current = intervalId;
-    setMaConfig({ isActive: true, market, shortPeriod, longPeriod });
-  };
-
-  const stopMA = () => {
-    if (tradeIntervalRef.current && maConfig.isActive) {
-      clearInterval(tradeIntervalRef.current);
-      tradeIntervalRef.current = null;
+        if (lastRsi < strategy.buyThreshold) {
+          console.log(`[${strategy.market}] RSI 과매도! 매수 실행`);
+          const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
+          if (krwAmount > 5000) {
+            const amountToBuy = krwAmount / candles[0].trade_price;
+            buyAsset(strategy.market, candles[0].trade_price, amountToBuy);
+          }
+        } else if (lastRsi > strategy.sellThreshold) {
+          console.log(`[${strategy.market}] RSI 과매수! 매도 실행`);
+          const assetToSell = assets.find(a => a.market === strategy.market);
+          if (assetToSell && assetToSell.quantity > 0) {
+            sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity);
+          }
+        }
+      } catch (error) { console.error('RSI 전략 실행 실패:', error); }
     }
-    setMaConfig({ isActive: false });
+  };
+
+  const startStrategy = (strategyConfig: Omit<Strategy, 'id' | 'isActive'>) => {
+    const newStrategy: Strategy = {
+      ...strategyConfig,
+      id: new Date().toISOString() + Math.random(),
+      isActive: true,
+    };
+
+    let intervalMilliseconds = 30000; // default for MA
+    if (newStrategy.strategyType === 'dca') {
+      intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[newStrategy.interval] || 24000;
+    }
+
+    executeStrategy(newStrategy);
+    const intervalId = setInterval(() => executeStrategy(newStrategy), intervalMilliseconds);
+    strategyIntervalsRef.current[newStrategy.id] = intervalId;
+    setStrategies(prev => [...prev, newStrategy]);
+  };
+
+  const stopStrategy = (strategyId: string) => {
+    const intervalId = strategyIntervalsRef.current[strategyId];
+    if (intervalId) {
+      clearInterval(intervalId);
+      delete strategyIntervalsRef.current[strategyId];
+    }
+    setStrategies(prev => prev.filter(s => s.id !== strategyId));
   };
 
   return (
-    <PortfolioContext.Provider value={{ cash, assets, transactions, dcaConfig, maConfig, buyAsset, sellAsset, startDCA, stopDCA, startMA, stopMA }}>
+    <PortfolioContext.Provider value={{ cash, assets, transactions, strategies, buyAsset, sellAsset, startStrategy, stopStrategy }}>
       {children}
     </PortfolioContext.Provider>
   );

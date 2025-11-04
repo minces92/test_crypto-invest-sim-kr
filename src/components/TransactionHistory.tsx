@@ -6,16 +6,16 @@ export default function TransactionHistory() {
   const { transactions } = usePortfolio();
 
   return (
-    <div className="Box mt-4">
+    <div className="Box mt-4 border">
       <div className="Box-header">
         <h2 className="Box-title">거래 내역</h2>
       </div>
       <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
         {transactions.length === 0 ? (
-          <p className="text-center color-fg-muted">거래 내역이 없습니다.</p>
+          <p className="text-center color-fg-muted p-3">거래 내역이 없습니다.</p>
         ) : (
           <table className="Table Table--small">
-            <thead>
+            <thead className="color-bg-subtle">
               <tr>
                 <th>시간</th>
                 <th>종류</th>

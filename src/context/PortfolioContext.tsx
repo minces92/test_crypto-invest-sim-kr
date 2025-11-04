@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useRef } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef, useEffect } from 'react';
 import { calculateSMA, calculateRSI } from '@/lib/utils';
 
 // --- Interface 정의들 ---
@@ -62,7 +62,20 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
   const strategyIntervalsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
-  const addTransaction = (type: 'buy' | 'sell', market: string, price: number, amount: number) => {
+  useEffect(() => {
+    const fetchTransactions = async () => {
+      try {
+        const response = await fetch('/api/transactions');
+        const data = await response.json();
+        setTransactions(data);
+      } catch (error) {
+        console.error('Error fetching transactions:', error);
+      }
+    };
+    fetchTransactions();
+  }, []);
+
+  const addTransaction = async (type: 'buy' | 'sell', market: string, price: number, amount: number) => {
     const newTransaction: Transaction = {
       id: new Date().toISOString() + Math.random(),
       type,
@@ -71,7 +84,22 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       amount,
       timestamp: new Date().toISOString(),
     };
-    setTransactions(prev => [newTransaction, ...prev]);
+    
+    try {
+      const response = await fetch('/api/transactions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(newTransaction),
+      });
+      const savedTransaction = await response.json();
+      setTransactions(prev => [savedTransaction, ...prev]);
+    } catch (error) {
+      console.error('Error saving transaction:', error);
+      // Optimistic update fallback
+      setTransactions(prev => [newTransaction, ...prev]);
+    }
   };
 
   const buyAsset = (market: string, price: number, amount: number): boolean => {

@@ -74,13 +74,13 @@ export default function CryptoTable() {
 
   return (
     <>
-      <div className="Box">
+      <div className="Box border">
         <div className="Box-header">
           <h2 className="Box-title">실시간 시세</h2>
         </div>
         <div className="Box-body">
           <table className="Table Table--hover">
-            <thead>
+            <thead className="color-bg-subtle">
               <tr>
                 <th>자산</th>
                 <th>가격 (KRW)</th>

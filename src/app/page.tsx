@@ -8,14 +8,16 @@ export default function Home() {
   return (
     <>
       <Header />
-      <div className="PageLayout container-xl">
-        <div className="PageLayout-main">
-          <CryptoTable />
-          <TransactionHistory />
-        </div>
-        <div className="PageLayout-pane">
-          <Portfolio />
-          <AutoTrader />
+      <div className="container-lg p-responsive py-4">
+        <div className="d-flex flex-wrap gutter-spacious">
+          <div className="col-12 col-lg-8 mb-4">
+            <CryptoTable />
+            <TransactionHistory />
+          </div>
+          <div className="col-12 col-lg-4 mb-4">
+            <Portfolio />
+            <AutoTrader />
+          </div>
         </div>
       </div>
     </>

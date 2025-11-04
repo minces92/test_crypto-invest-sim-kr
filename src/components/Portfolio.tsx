@@ -49,17 +49,21 @@ export default function Portfolio() {
         <h2 className="Box-title">내 포트폴리오</h2>
       </div>
       <div className="Box-body">
-        <h5 className="f5"><strong>총 자산</strong></h5>
-        <h4 className="f2 mb-3">{totalValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</h4>
+        <div className="Box color-bg-subtle p-3 rounded-2 mb-3">
+          <h5 className="f5 text-center"><strong>총 자산</strong></h5>
+          <h3 className="f1 text-center text-bold mb-0">{totalValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</h3>
+        </div>
         
-        <h6 className="f6"><strong>보유 현금</strong></h6>
-        <p className="text-normal">{cash.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</p>
+        <div className="d-flex flex-justify-between flex-items-center mb-3">
+          <h6 className="f6 mb-0"><strong>보유 현금</strong></h6>
+          <p className="text-normal mb-0">{cash.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</p>
+        </div>
         
         <hr className="my-3" />
 
-        <h6 className="f6"><strong>보유 자산 목록</strong></h6>
+        <h6 className="f6 mb-2"><strong>보유 자산 목록</strong></h6>
         {assets.length === 0 ? (
-          <p className="text-small color-fg-muted">보유한 암호화폐가 없습니다.</p>
+          <p className="text-small color-fg-muted text-center">보유한 암호화폐가 없습니다.</p>
         ) : (
           <ul className="list-style-none p-0 m-0">
             {assets.map(asset => {
@@ -72,8 +76,8 @@ export default function Portfolio() {
                 <li key={asset.market} className="BorderGrid-row py-2 d-flex flex-justify-between flex-items-center">
                   <div>
                     <strong className="f5">{asset.market.replace('KRW-', '')}</strong> <br />
-                    <small className="text-small">수량: {asset.quantity.toFixed(4)}</small> <br />
-                    <small className="text-small">평단: {asset.avg_buy_price.toLocaleString('ko-KR')} 원</small>
+                    <small className="text-small color-fg-muted">수량: {asset.quantity.toFixed(4)}</small> <br />
+                    <small className="text-small color-fg-muted">평단: {asset.avg_buy_price.toLocaleString('ko-KR')} 원</small>
                   </div>
                   <div className="text-right">
                     <strong className="f5">{currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</strong> <br />

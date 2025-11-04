@@ -13,6 +13,7 @@ interface TradeModalProps {
   ticker: Ticker | null;
 }
 
+
 export default function TradeModal({ show, handleClose, ticker }: TradeModalProps) {
   const { cash, assets, buyAsset, sellAsset } = usePortfolio();
   const [orderType, setOrderType] = useState('buy');
@@ -35,8 +36,6 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
       setAmount('');
     }
   }, [show]);
-
-  if (!show || !ticker) return null;
 
   const handleTrade = () => {
     const numericAmount = parseFloat(amount);
@@ -78,38 +77,40 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
     return names[market] || market;
   };
 
+  if (!show || !ticker) return null;
+
   return (
-    <div className="modal d-block" tabIndex={-1} style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
-      <div className="modal-dialog modal-dialog-centered">
-        <div className="modal-content">
-          <div className="modal-header">
-            <h5 className="modal-title">{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')}) 거래</h5>
-            <button type="button" className="btn-close" onClick={handleClose}></button>
-          </div>
-          <div className="modal-body">
-            
-            <ChartComponent market={ticker.market} />
+    <div className="Box-overlay d-flex flex-justify-center flex-items-center" style={{ zIndex: 100 }}>
+      <div className="Box" style={{ minWidth: '500px' }}>
+        <div className="Box-header Box-header--divided">
+          <h5 className="Box-title">{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')}) 거래</h5>
+          <button type="button" className="close-button" onClick={handleClose}>
+            <svg className="octicon octicon-x" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path d="M3.72 3.72a.75.75 0 0 1 1.06 0L8 6.94l3.22-3.22a.75.75 0 1 1 1.06 1.06L9.06 8l3.22 3.22a.75.75 0 1 1-1.06 1.06L8 9.06l-3.22 3.22a.75.75 0 0 1-1.06-1.06L6.94 8 3.72 4.78a.75.75 0 0 1 0-1.06Z"></path></svg>
+          </button>
+        </div>
+        <div className="Box-body">
+          
+          <ChartComponent market={ticker.market} />
 
-            <ul className="nav nav-pills nav-fill my-3">
-              <li className="nav-item">
-                <a className={`nav-link ${orderType === 'buy' ? 'active' : ''}`} href="#" onClick={() => setOrderType('buy')}>매수</a>
-              </li>
-              <li className="nav-item">
-                <a className={`nav-link ${orderType === 'sell' ? 'active' : ''}`} href="#" onClick={() => setOrderType('sell')}>매도</a>
-              </li>
-            </ul>
-
-            <div className="mb-3">
-              <p>주문 가능: 
-                {orderType === 'buy' 
-                  ? `${cash.toLocaleString('ko-KR')} 원` 
-                  : `${asset?.quantity || 0} ${ticker.market.replace('KRW-', '')}`}
-              </p>
-              <p>현재가: <span className="fw-bold">{ticker.trade_price.toLocaleString('ko-KR')} 원</span></p>
+          <div className="UnderlineNav my-3">
+            <div className="UnderlineNav-body">
+              <a href="#" className={`UnderlineNav-item ${orderType === 'buy' ? 'selected' : ''}`} onClick={() => setOrderType('buy')}>매수</a>
+              <a href="#" className={`UnderlineNav-item ${orderType === 'sell' ? 'selected' : ''}`} onClick={() => setOrderType('sell')}>매도</a>
             </div>
+          </div>
 
-            <div className="input-group mb-3">
-              <span className="input-group-text">수량</span>
+          <div className="mb-3">
+            <p>주문 가능: 
+              {orderType === 'buy' 
+                ? `${cash.toLocaleString('ko-KR')} 원` 
+                : `${asset?.quantity || 0} ${ticker.market.replace('KRW-', '')}`}
+            </p>
+            <p>현재가: <span className="f5">{ticker.trade_price.toLocaleString('ko-KR')} 원</span></p>
+          </div>
+
+          <div className="form-group mb-3">
+            <div className="form-group-header"><label>수량</label></div>
+            <div className="form-group-body">
               <input 
                 type="number" 
                 className="form-control" 
@@ -117,25 +118,24 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
                 value={amount} 
                 onChange={(e) => setAmount(e.target.value)} 
               />
-              <span className="input-group-text">{ticker.market.replace('KRW-', '')}</span>
             </div>
-
-            <div className="text-end">
-              <p className="mb-1">주문 총액</p>
-              <h5 className="fw-bold">{total.toLocaleString('ko-KR', { maximumFractionDigits: 0 })} 원</h5>
-            </div>
-
           </div>
-          <div className="modal-footer">
-            <button type="button" className="btn btn-secondary" onClick={handleClose}>취소</button>
-            <button 
-              type="button" 
-              className={`btn ${orderType === 'buy' ? 'btn-danger' : 'btn-primary'}`} 
-              onClick={handleTrade}
-            >
-              {orderType === 'buy' ? '매수' : '매도'}
-            </button>
+
+          <div className="text-right">
+            <p className="mb-1">주문 총액</p>
+            <h5 className="f5">{total.toLocaleString('ko-KR', { maximumFractionDigits: 0 })} 원</h5>
           </div>
+
+        </div>
+        <div className="Box-footer d-flex flex-justify-end">
+          <button type="button" className="btn mr-2" onClick={handleClose}>취소</button>
+          <button 
+            type="button" 
+            className={`btn ${orderType === 'buy' ? 'btn-danger' : 'btn-primary'}`} 
+            onClick={handleTrade}
+          >
+            {orderType === 'buy' ? '매수' : '매도'}
+          </button>
         </div>
       </div>
     </div>

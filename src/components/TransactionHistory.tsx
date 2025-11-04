@@ -6,15 +6,15 @@ export default function TransactionHistory() {
   const { transactions } = usePortfolio();
 
   return (
-    <div className="card mt-4">
-      <div className="card-header">
-        <h2>거래 내역</h2>
+    <div className="Box mt-4">
+      <div className="Box-header">
+        <h2 className="Box-title">거래 내역</h2>
       </div>
-      <div className="card-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+      <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
         {transactions.length === 0 ? (
-          <p className="text-center text-muted">거래 내역이 없습니다.</p>
+          <p className="text-center color-fg-muted">거래 내역이 없습니다.</p>
         ) : (
-          <table className="table table-sm">
+          <table className="Table Table--small">
             <thead>
               <tr>
                 <th>시간</th>
@@ -29,7 +29,7 @@ export default function TransactionHistory() {
               {transactions.map(tx => (
                 <tr key={tx.id}>
                   <td>{new Date(tx.timestamp).toLocaleString('ko-KR', { hour12: false })}</td>
-                  <td className={tx.type === 'buy' ? 'text-danger' : 'text-primary'}>
+                  <td className={tx.type === 'buy' ? 'color-fg-danger' : 'color-fg-accent'}>
                     {tx.type === 'buy' ? '매수' : '매도'}
                   </td>
                   <td>{tx.market.replace('KRW-', '')}</td>

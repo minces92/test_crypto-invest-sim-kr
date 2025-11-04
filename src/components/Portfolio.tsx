@@ -44,24 +44,24 @@ export default function Portfolio() {
   const totalValue = cash + totalAssetValue;
 
   return (
-    <div className="card mb-4">
-      <div className="card-header">
-        <h2>내 포트폴리오</h2>
+    <div className="Box mb-4">
+      <div className="Box-header">
+        <h2 className="Box-title">내 포트폴리오</h2>
       </div>
-      <div className="card-body">
-        <h5><strong>총 자산</strong></h5>
-        <h4 className="mb-3">{totalValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</h4>
+      <div className="Box-body">
+        <h5 className="f5"><strong>총 자산</strong></h5>
+        <h4 className="f2 mb-3">{totalValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</h4>
         
-        <h6><strong>보유 현금</strong></h6>
-        <p>{cash.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</p>
+        <h6 className="f6"><strong>보유 현금</strong></h6>
+        <p className="text-normal">{cash.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</p>
         
-        <hr />
+        <hr className="my-3" />
 
-        <h6><strong>보유 자산 목록</strong></h6>
+        <h6 className="f6"><strong>보유 자산 목록</strong></h6>
         {assets.length === 0 ? (
-          <p className="text-muted">보유한 암호화폐가 없습니다.</p>
+          <p className="text-small color-fg-muted">보유한 암호화폐가 없습니다.</p>
         ) : (
-          <ul className="list-group list-group-flush">
+          <ul className="list-style-none p-0 m-0">
             {assets.map(asset => {
               const currentPrice = tickers[asset.market]?.trade_price;
               const currentValue = currentPrice ? currentPrice * asset.quantity : asset.avg_buy_price * asset.quantity;
@@ -69,15 +69,15 @@ export default function Portfolio() {
               const profitLossRate = (currentValue / (asset.avg_buy_price * asset.quantity) - 1) * 100;
 
               return (
-                <li key={asset.market} className="list-group-item d-flex justify-content-between align-items-center">
+                <li key={asset.market} className="BorderGrid-row py-2 d-flex flex-justify-between flex-items-center">
                   <div>
-                    <strong>{asset.market.replace('KRW-', '')}</strong> <br />
-                    <small>수량: {asset.quantity.toFixed(4)}</small> <br />
-                    <small>평단: {asset.avg_buy_price.toLocaleString('ko-KR')} 원</small>
+                    <strong className="f5">{asset.market.replace('KRW-', '')}</strong> <br />
+                    <small className="text-small">수량: {asset.quantity.toFixed(4)}</small> <br />
+                    <small className="text-small">평단: {asset.avg_buy_price.toLocaleString('ko-KR')} 원</small>
                   </div>
-                  <div className="text-end">
-                    <strong>{currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</strong> <br />
-                    <small className={profitLoss >= 0 ? 'text-success' : 'text-danger'}>
+                  <div className="text-right">
+                    <strong className="f5">{currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</strong> <br />
+                    <small className={`text-small ${profitLoss >= 0 ? 'color-fg-success' : 'color-fg-danger'}`}>
                       {profitLoss.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원 ({profitLossRate.toFixed(2)}%)
                     </small>
                   </div>

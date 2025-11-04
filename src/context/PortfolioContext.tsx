@@ -1,3 +1,5 @@
+'use client';
+
 import React, { createContext, useState, useContext, ReactNode, useRef } from 'react';
 import { calculateSMA } from '@/lib/utils';
 

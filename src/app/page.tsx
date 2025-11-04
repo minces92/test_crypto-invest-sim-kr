@@ -8,18 +8,16 @@ export default function Home() {
   return (
     <>
       <Header />
-      <main className="container">
-        <div className="row">
-          <div className="col-md-4">
-            <Portfolio />
-            <AutoTrader />
-          </div>
-          <div className="col-md-8">
-            <CryptoTable />
-            <TransactionHistory />
-          </div>
+      <div className="PageLayout container-xl">
+        <div className="PageLayout-main">
+          <CryptoTable />
+          <TransactionHistory />
         </div>
-      </main>
+        <div className="PageLayout-pane">
+          <Portfolio />
+          <AutoTrader />
+        </div>
+      </div>
     </>
   );
 }

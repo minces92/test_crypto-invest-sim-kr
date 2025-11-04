@@ -74,12 +74,12 @@ export default function CryptoTable() {
 
   return (
     <>
-      <div className="card">
-        <div className="card-header">
-          <h2>실시간 시세</h2>
+      <div className="Box">
+        <div className="Box-header">
+          <h2 className="Box-title">실시간 시세</h2>
         </div>
-        <div className="card-body">
-          <table className="table table-hover">
+        <div className="Box-body">
+          <table className="Table Table--hover">
             <thead>
               <tr>
                 <th>자산</th>
@@ -90,12 +90,12 @@ export default function CryptoTable() {
             </thead>
             <tbody>
               {loading && <tr><td colSpan={4} className="text-center">로딩 중...</td></tr>}
-              {error && <tr><td colSpan={4} className="text-center text-danger">데이터를 불러오는 데 실패했습니다: {error}</td></tr>}
+              {error && <tr><td colSpan={4} className="text-center color-fg-danger">데이터를 불러오는 데 실패했습니다: {error}</td></tr>}
               {!loading && !error && tickers.map((ticker) => (
                 <tr key={ticker.market}>
                   <td>{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')})</td>
                   <td>{ticker.trade_price.toLocaleString('ko-KR')}</td>
-                  <td className={ticker.signed_change_rate >= 0 ? 'text-success' : 'text-danger'}>
+                  <td className={ticker.signed_change_rate >= 0 ? 'color-fg-success' : 'color-fg-danger'}>
                     {(ticker.signed_change_rate * 100).toFixed(2)}%
                   </td>
                   <td><button className="btn btn-primary btn-sm" onClick={() => handleOpenModal(ticker)}>거래</button></td>

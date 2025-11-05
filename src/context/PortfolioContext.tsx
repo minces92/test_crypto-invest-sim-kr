@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect, useMemo } from 'react';
 import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
 
 // --- Interface 정의들 ---
@@ -67,7 +67,6 @@ const INITIAL_CASH = 100000;
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
-  const cashRef = useRef(INITIAL_CASH);
 
   const strategyIntervalsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
@@ -110,13 +109,13 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     fetchStrategies();
   }, []);
 
-  const { assets, cash } = useMemo(() => {
+  const getPortfolioState = (currentTransactions: Transaction[]) => {
     let calculatedCash = INITIAL_CASH;
     const calculatedAssets: { [market: string]: Asset } = {};
 
     // Process transactions in reverse order (oldest first)
-    for (let i = transactions.length - 1; i >= 0; i--) {
-      const tx = transactions[i];
+    for (let i = currentTransactions.length - 1; i >= 0; i--) {
+      const tx = currentTransactions[i];
       if (tx.type === 'buy') {
         calculatedCash -= tx.price * tx.amount;
         if (calculatedAssets[tx.market]) {
@@ -142,14 +141,14 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         }
       }
     }
-    
-    cashRef.current = calculatedCash;
 
-    return { 
+    return {
       assets: Object.values(calculatedAssets).filter(a => a.quantity > 0.00001),
       cash: calculatedCash,
     };
-  }, [transactions]);
+  };
+
+  const { assets, cash } = useMemo(() => getPortfolioState(transactions), [transactions]);
 
   const addTransaction = async (type: 'buy' | 'sell', market: string, price: number, amount: number, source: string) => {
     const newTransaction: Transaction = {
@@ -161,27 +160,33 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       timestamp: new Date().toISOString(),
       source,
     };
-    
+
+    // Optimistic update
+    const newTransactions = [newTransaction, ...transactions];
+    setTransactions(newTransactions);
+
     try {
       const response = await fetch('/api/transactions', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newTransaction),
       });
-      const savedTransaction = await response.json();
-      setTransactions(prev => [savedTransaction, ...prev]);
+      if (!response.ok) {
+        // Revert on failure
+        setTransactions(transactions);
+      }
     } catch (error) {
       console.error('Error saving transaction:', error);
-      // Optimistic update fallback
-      setTransactions(prev => [newTransaction, ...prev]);
+      // Revert on failure
+      setTransactions(transactions);
     }
   };
 
   const buyAsset = (market: string, price: number, amount: number, source: string): boolean => {
     const cost = price * amount;
-    if (cashRef.current < cost) {
+    const { cash: currentCash } = getPortfolioState(transactions);
+    if (currentCash < cost) {
+      alert('현금이 부족하여 매수할 수 없습니다.');
       console.error('현금이 부족하여 매수할 수 없습니다.');
       return false;
     }
@@ -190,9 +195,11 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const sellAsset = (market: string, price: number, amount: number, source: string): boolean => {
-    const existingAsset = assets.find(a => a.market === market);
+    const { assets: currentAssets } = getPortfolioState(transactions);
+    const existingAsset = currentAssets.find(a => a.market === market);
     if (!existingAsset || existingAsset.quantity < amount) {
-      console.error('매도할 수량이 부족합니다.');
+      alert('매도 가능 수량이 부족합니다.');
+      console.error('매도 가능 수량이 부족합니다.');
       return false;
     }
     addTransaction('sell', market, price, amount, source);
@@ -220,17 +227,11 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         if (candles.length < strategy.longPeriod + 2) return; // 데이터 부족
 
         const reversedCandles = [...candles].reverse(); // 시간순으로 정렬
-        const shortSMA = calculateSMA(reversedCandles, strategy.shortPeriod);
-        const longSMA = calculateSMA(reversedCandles, strategy.longPeriod);
-
-        const lastShort = shortSMA[shortSMA.length - 1];
-        const prevShort = shortSMA[shortSMA.length - 2];
-        const lastLong = longSMA[longSMA.length - (strategy.longPeriod - strategy.shortPeriod) - 1];
-        const prevLong = longSMA[longSMA.length - (strategy.longPeriod - strategy.shortPeriod) - 2];
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
 
         // Golden Cross
         if (lastShort > lastLong && prevShort <= prevLong) {
-          const krwAmount = cashRef.current * 0.5; // 보유 현금의 50% 매수
+          const krwAmount = currentCash * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / candles[0].trade_price;
             buyAsset(strategy.market, candles[0].trade_price, amountToBuy, strategy.id);
@@ -239,7 +240,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         // Dead Cross
         else if (lastShort < lastLong && prevShort >= prevLong) {
           console.log(`[${strategy.market}] 데드크로스 발생! 매도 실행`);
-          const assetToSell = assets.find(a => a.market === strategy.market);
+          const assetToSell = currentAssets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
             sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity, strategy.id);
           }
@@ -254,17 +255,18 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         const reversedCandles = [...candles].reverse(); // 시간순으로 정렬
         const rsi = calculateRSI(reversedCandles, strategy.period);
         const lastRsi = rsi[rsi.length - 1];
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
 
         if (lastRsi < strategy.buyThreshold) {
           console.log(`[${strategy.market}] RSI 과매도! 매수 실행`);
-          const krwAmount = cashRef.current * 0.5; // 보유 현금의 50% 매수
+          const krwAmount = currentCash * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / candles[0].trade_price;
             buyAsset(strategy.market, candles[0].trade_price, amountToBuy, strategy.id);
           }
         } else if (lastRsi > strategy.sellThreshold) {
           console.log(`[${strategy.market}] RSI 과매수! 매도 실행`);
-          const assetToSell = assets.find(a => a.market === strategy.market);
+          const assetToSell = currentAssets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
             sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity, strategy.id);
           }
@@ -282,17 +284,18 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         const currentPrice = reversedCandles[reversedCandles.length - 1].trade_price;
         const lastUpper = bb.upper[bb.upper.length - 1];
         const lastLower = bb.lower[bb.lower.length - 1];
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
 
         if (currentPrice < lastLower) {
           console.log(`[${strategy.market}] 볼린저 밴드 하단 터치! 매수 실행`);
-          const krwAmount = cashRef.current * 0.5; // 보유 현금의 50% 매수
+          const krwAmount = currentCash * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / currentPrice;
             buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
           }
         } else if (currentPrice > lastUpper) {
           console.log(`[${strategy.market}] 볼린저 밴드 상단 터치! 매도 실행`);
-          const assetToSell = assets.find(a => a.market === strategy.market);
+          const assetToSell = currentAssets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
             sellAsset(strategy.market, currentPrice, assetToSell.quantity * 0.5, strategy.id); // 보유 수량의 50% 매도
           }

@@ -230,8 +230,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
         // Golden Cross
         if (lastShort > lastLong && prevShort <= prevLong) {
-          console.log(`[${strategy.market}] 골든크로스 발생! 매수 실행`);
-          const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
+          const krwAmount = cashRef.current * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / candles[0].trade_price;
             buyAsset(strategy.market, candles[0].trade_price, amountToBuy, strategy.id);
@@ -258,7 +257,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
         if (lastRsi < strategy.buyThreshold) {
           console.log(`[${strategy.market}] RSI 과매도! 매수 실행`);
-          const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
+          const krwAmount = cashRef.current * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / candles[0].trade_price;
             buyAsset(strategy.market, candles[0].trade_price, amountToBuy, strategy.id);
@@ -286,7 +285,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
         if (currentPrice < lastLower) {
           console.log(`[${strategy.market}] 볼린저 밴드 하단 터치! 매수 실행`);
-          const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
+          const krwAmount = cashRef.current * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / currentPrice;
             buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);

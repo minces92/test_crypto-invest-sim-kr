@@ -11,16 +11,23 @@ interface TradeModalProps {
   show: boolean;
   handleClose: () => void;
   ticker: Ticker | null;
+  initialOrderType: 'buy' | 'sell';
 }
 
 
-export default function TradeModal({ show, handleClose, ticker }: TradeModalProps) {
+export default function TradeModal({ show, handleClose, ticker, initialOrderType }: TradeModalProps) {
   const { cash, assets, buyAsset, sellAsset } = usePortfolio();
-  const [orderType, setOrderType] = useState('buy');
+  const [orderType, setOrderType] = useState(initialOrderType);
   const [amount, setAmount] = useState('');
   const [total, setTotal] = useState(0);
 
   const asset = assets.find(a => a.market === ticker?.market);
+
+  useEffect(() => {
+    if (show) {
+      setOrderType(initialOrderType);
+    }
+  }, [show, initialOrderType]);
 
   useEffect(() => {
     if (ticker && amount) {
@@ -48,6 +55,11 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
     if (orderType === 'buy') {
       success = buyAsset(ticker.market, ticker.trade_price, numericAmount, 'manual');
     } else {
+      const availableAmount = asset?.quantity || 0;
+      if (numericAmount > availableAmount) {
+        alert(`매도 가능 수량(${availableAmount})을 초과했습니다.`);
+        return;
+      }
       success = sellAsset(ticker.market, ticker.trade_price, numericAmount, 'manual');
     }
 
@@ -94,8 +106,8 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
 
           <div className="UnderlineNav my-3">
             <div className="UnderlineNav-body">
-              <a href="#" className={`UnderlineNav-item ${orderType === 'buy' ? 'selected' : ''}`} onClick={() => setOrderType('buy')}>매수</a>
-              <a href="#" className={`UnderlineNav-item ${orderType === 'sell' ? 'selected' : ''}`} onClick={() => setOrderType('sell')}>매도</a>
+              <a href="#" className={`UnderlineNav-item ${orderType === 'buy' ? 'selected' : ''}`} onClick={(e) => {e.preventDefault(); setOrderType('buy');}} >매수</a>
+              <a href="#" className={`UnderlineNav-item ${orderType === 'sell' ? 'selected' : ''}`} onClick={(e) => {e.preventDefault(); setOrderType('sell');}} >매도</a>
             </div>
           </div>
 
@@ -131,7 +143,7 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
           <button type="button" className="btn mr-2" onClick={handleClose}>취소</button>
           <button 
             type="button" 
-            className={`btn ${orderType === 'buy' ? 'btn-danger' : 'btn-primary'}`} 
+            className={`btn ${orderType === 'buy' ? 'btn-danger' : 'btn-primary'}`}
             onClick={handleTrade}
           >
             {orderType === 'buy' ? '매수' : '매도'}
@@ -141,3 +153,4 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
     </div>
   );
 }
+

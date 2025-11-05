@@ -8,7 +8,11 @@ interface Ticker {
   trade_price: number;
 }
 
-export default function Portfolio() {
+interface PortfolioProps {
+  handleOpenModal: (ticker: Ticker, type: 'buy' | 'sell') => void;
+}
+
+export default function Portfolio({ handleOpenModal }: PortfolioProps) {
   const { cash, assets } = usePortfolio();
   const [tickers, setTickers] = useState<{ [key: string]: Ticker }>({});
 
@@ -71,19 +75,25 @@ export default function Portfolio() {
               const currentValue = currentPrice ? currentPrice * asset.quantity : asset.avg_buy_price * asset.quantity;
               const profitLoss = currentValue - (asset.avg_buy_price * asset.quantity);
               const profitLossRate = (currentValue / (asset.avg_buy_price * asset.quantity) - 1) * 100;
+              const assetTicker = { market: asset.market, trade_price: currentPrice || asset.avg_buy_price };
 
               return (
-                <li key={asset.market} className="BorderGrid-row py-2 d-flex flex-justify-between flex-items-center">
-                  <div>
-                    <strong className="f5">{asset.market.replace('KRW-', '')}</strong> <br />
-                    <small className="text-small color-fg-muted">수량: {asset.quantity.toFixed(4)}</small> <br />
-                    <small className="text-small color-fg-muted">평단: {asset.avg_buy_price.toLocaleString('ko-KR')} 원</small>
+                <li key={asset.market} className="BorderGrid-row py-2">
+                  <div className="d-flex flex-justify-between flex-items-center">
+                    <div>
+                      <strong className="f5">{asset.market.replace('KRW-', '')}</strong> <br />
+                      <small className="text-small color-fg-muted">수량: {asset.quantity.toFixed(4)}</small> <br />
+                      <small className="text-small color-fg-muted">평단: {asset.avg_buy_price.toLocaleString('ko-KR')} 원</small>
+                    </div>
+                    <div className="text-right">
+                      <strong className="f5">{currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</strong> <br />
+                      <small className={`text-small ${profitLoss >= 0 ? 'color-fg-success' : 'color-fg-danger'}`}>
+                        {profitLoss.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원 ({profitLossRate.toFixed(2)}%)
+                      </small>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <strong className="f5">{currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</strong> <br />
-                    <small className={`text-small ${profitLoss >= 0 ? 'color-fg-success' : 'color-fg-danger'}`}>
-                      {profitLoss.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원 ({profitLossRate.toFixed(2)}%)
-                    </small>
+                  <div className="text-right mt-2">
+                    <button className="btn btn-danger btn-sm" onClick={() => handleOpenModal(assetTicker, 'sell')}>매도</button>
                   </div>
                 </li>
               );

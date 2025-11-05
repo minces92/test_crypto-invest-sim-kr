@@ -5,6 +5,7 @@ import Header from "@/components/Header";
 import Portfolio from "@/components/Portfolio";
 import CryptoTable from "@/components/CryptoTable";
 import TransactionHistory from "@/components/TransactionHistory";
+import NewsFeed from "@/components/NewsFeed";
 import AutoTrader from "@/components/AutoTrader";
 import TradeModal from '@/components/TradeModal';
 
@@ -37,6 +38,7 @@ export default function Home() {
           <div className="col-12 col-lg-12 mb-4">
             <CryptoTable handleOpenModal={handleOpenModal} />
             <TransactionHistory />
+            <NewsFeed />
           </div>
           <div className="col-12 col-lg-12 mb-4">
             <Portfolio handleOpenModal={handleOpenModal} />

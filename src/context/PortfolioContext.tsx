@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useEffect, useMemo } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
 import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
 
 // --- Interface 정의들 ---
@@ -47,7 +47,13 @@ interface BBandConfig {
   multiplier: number;
 }
 
-export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig) & { id: string; isActive: boolean };
+interface NewsStrategyConfig {
+  strategyType: 'news';
+  market: string;
+  sentimentThreshold: 'positive' | 'negative'; // e.g., 'positive' to buy on good news, 'negative' to sell on bad news
+}
+
+export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig) & { id: string; isActive: boolean };
 
 interface PortfolioContextType {
   cash: number;
@@ -301,6 +307,45 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           }
         }
       } catch (error) { console.error('BBand 전략 실행 실패:', error); }
+    } else if (strategy.strategyType === 'news') {
+      try {
+        const response = await fetch(`/api/news?query=${strategy.market.replace('KRW-', '')}&language=ko`);
+        const newsArticles = await response.json();
+
+        const relevantNews = newsArticles.filter((article: any) => 
+          article.title.toLowerCase().includes(strategy.market.replace('KRW-', '').toLowerCase())
+        );
+
+        if (relevantNews.length > 0) {
+          const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
+          const currentPriceResponse = await fetch(`/api/tickers?markets=${strategy.market}`);
+          const currentPriceData = await currentPriceResponse.json();
+          const currentPrice = currentPriceData[0]?.trade_price;
+
+          if (!currentPrice) {
+            console.error(`[${strategy.market}] 현재 가격을 가져올 수 없습니다.`);
+            return;
+          }
+
+          const hasPositiveNews = relevantNews.some((article: any) => article.sentiment === 'positive');
+          const hasNegativeNews = relevantNews.some((article: any) => article.sentiment === 'negative');
+
+          if (strategy.sentimentThreshold === 'positive' && hasPositiveNews) {
+            console.log(`[${strategy.market}] 호재 뉴스 감지! 매수 실행`);
+            const krwAmount = currentCash * 0.5; // 보유 현금의 50% 매수
+            if (krwAmount > 5000) {
+              const amountToBuy = krwAmount / currentPrice;
+              buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
+            }
+          } else if (strategy.sentimentThreshold === 'negative' && hasNegativeNews) {
+            console.log(`[${strategy.market}] 악재 뉴스 감지! 매도 실행`);
+            const assetToSell = currentAssets.find(a => a.market === strategy.market);
+            if (assetToSell && assetToSell.quantity > 0) {
+              sellAsset(strategy.market, currentPrice, assetToSell.quantity * 0.5, strategy.id); // 보유 수량의 50% 매도
+            }
+          }
+        }
+      } catch (error) { console.error('News 전략 실행 실패:', error); }
     }
   };
 
@@ -325,6 +370,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       let intervalMilliseconds = 30000; // default for MA
       if (savedStrategy.strategyType === 'dca') {
         intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[savedStrategy.interval] || 24000;
+      } else if (savedStrategy.strategyType === 'news') {
+        intervalMilliseconds = 300000; // Check news every 5 minutes
       }
   
       executeStrategy(savedStrategy);

@@ -18,6 +18,7 @@ export default function AutoTrader() {
   const [rsiSellThreshold, setRsiSellThreshold] = useState('70');
   const [bbandPeriod, setBbandPeriod] = useState('20');
   const [bbandMultiplier, setBbandMultiplier] = useState('2');
+  const [sentimentThreshold, setSentimentThreshold] = useState<'positive' | 'negative'>('positive');
 
   const availableMarkets = [
     'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA', 
@@ -63,6 +64,13 @@ export default function AutoTrader() {
           multiplier: parseInt(bbandMultiplier, 10),
         };
         break;
+      case 'news':
+        strategyConfig = {
+          strategyType: 'news',
+          market,
+          sentimentThreshold,
+        };
+        break;
       default:
         return;
     }
@@ -83,6 +91,7 @@ export default function AutoTrader() {
               <option value="ma">이동평균선 교차</option>
               <option value="rsi">RSI</option>
               <option value="bband">볼린저 밴드</option>
+              <option value="news">뉴스 기반</option>
             </select></div>
           </div>
 
@@ -92,6 +101,16 @@ export default function AutoTrader() {
               {availableMarkets.map(m => <option key={m} value={m}>{m.replace('KRW-','')}</option>)}
             </select></div>
           </div>
+
+          {strategyType === 'news' && (
+            <div className="form-group mb-3 col-8">
+              <div className="form-group-header"><label htmlFor="sentiment-threshold-select">감성 임계값</label></div>
+              <div className="form-group-body"><select id="sentiment-threshold-select" className="form-select" value={sentimentThreshold} onChange={e => setSentimentThreshold(e.target.value as 'positive' | 'negative')}> 
+                <option value="positive">긍정 뉴스 (매수)</option>
+                <option value="negative">부정 뉴스 (매도)</option>
+              </select></div>
+            </div>
+          )}
 
           {strategyType === 'dca' && (
             <>
@@ -175,6 +194,7 @@ export default function AutoTrader() {
                     {s.strategyType === 'ma' && `이평선 교차 (${s.shortPeriod} / ${s.longPeriod})`}
                     {s.strategyType === 'rsi' && `RSI (${s.period}, ${s.buyThreshold}/${s.sellThreshold})`}
                     {s.strategyType === 'bband' && `볼린저 밴드 (${s.period}, ${s.multiplier})`}
+                    {s.strategyType === 'news' && `뉴스 기반 (${s.sentimentThreshold === 'positive' ? '긍정' : '부정'})`}
                   </span>
                 </div>
                 <button className="btn btn-danger btn-sm" onClick={() => stopStrategy(s.id)}>중지</button>

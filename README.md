@@ -18,7 +18,11 @@
 - **스타일링:** Bootstrap
 - **데이터 소스:** 국내 거래소의 Public API (예: Upbit API)
 
-## 4. 개발 단계
+## 4. 문서 (Documentation)
+
+프로젝트의 상세한 기술 문서, API 명세 등은 [docs](./docs/README.md) 디렉토리에서 확인할 수 있습니다.
+
+## 5. 개발 단계
 
 1.  **프로젝트 초기 설정:** `create-next-app`을 사용하여 Next.js와 TypeScript 기반의 프로젝트 구조를 생성합니다.
 2.  **기본 UI 컴포넌트 설계:**

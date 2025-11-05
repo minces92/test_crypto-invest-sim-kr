@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
-import { calculateSMA, calculateRSI } from '@/lib/utils';
+import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
 
 // --- Interface 정의들 ---
 interface Asset {
@@ -16,6 +16,7 @@ interface Transaction {
   price: number;
   amount: number;
   timestamp: string;
+  source: string; // 'manual' or strategy ID
 }
 interface DcaConfig {
   strategyType: 'dca';
@@ -39,26 +40,34 @@ interface RsiConfig {
   sellThreshold: number;
 }
 
-export type Strategy = (DcaConfig | MaConfig | RsiConfig) & { id: string; isActive: boolean };
+interface BBandConfig {
+  strategyType: 'bband';
+  market: string;
+  period: number;
+  multiplier: number;
+}
+
+export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig) & { id: string; isActive: boolean };
 
 interface PortfolioContextType {
   cash: number;
   assets: Asset[];
   transactions: Transaction[];
   strategies: Strategy[];
-  buyAsset: (market: string, price: number, amount: number) => boolean;
-  sellAsset: (market: string, price: number, amount: number) => boolean;
+  buyAsset: (market: string, price: number, amount: number, source: string) => boolean;
+  sellAsset: (market: string, price: number, amount: number, source: string) => boolean;
   startStrategy: (strategy: Omit<Strategy, 'id' | 'isActive'>) => void;
   stopStrategy: (strategyId: string) => void;
 }
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
-const INITIAL_CASH = 10000000;
+const INITIAL_CASH = 100000;
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const cashRef = useRef(INITIAL_CASH);
 
   const strategyIntervalsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
 
@@ -67,9 +76,15 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       try {
         const response = await fetch('/api/transactions');
         const data = await response.json();
-        setTransactions(data);
+        if (Array.isArray(data)) {
+          setTransactions(data);
+        } else {
+          console.error('Fetched transactions is not an array:', data);
+          setTransactions([]);
+        }
       } catch (error) {
         console.error('Error fetching transactions:', error);
+        setTransactions([]);
       }
     };
     const fetchStrategies = async () => {
@@ -127,6 +142,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         }
       }
     }
+    
+    cashRef.current = calculatedCash;
 
     return { 
       assets: Object.values(calculatedAssets).filter(a => a.quantity > 0.00001),
@@ -134,7 +151,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     };
   }, [transactions]);
 
-  const addTransaction = async (type: 'buy' | 'sell', market: string, price: number, amount: number) => {
+  const addTransaction = async (type: 'buy' | 'sell', market: string, price: number, amount: number, source: string) => {
     const newTransaction: Transaction = {
       id: new Date().toISOString() + Math.random(),
       type,
@@ -142,6 +159,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       price,
       amount,
       timestamp: new Date().toISOString(),
+      source,
     };
     
     try {
@@ -161,23 +179,23 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
-  const buyAsset = (market: string, price: number, amount: number): boolean => {
+  const buyAsset = (market: string, price: number, amount: number, source: string): boolean => {
     const cost = price * amount;
-    if (cash < cost) {
+    if (cashRef.current < cost) {
       console.error('현금이 부족하여 매수할 수 없습니다.');
       return false;
     }
-    addTransaction('buy', market, price, amount);
+    addTransaction('buy', market, price, amount, source);
     return true;
   };
 
-  const sellAsset = (market: string, price: number, amount: number): boolean => {
+  const sellAsset = (market: string, price: number, amount: number, source: string): boolean => {
     const existingAsset = assets.find(a => a.market === market);
     if (!existingAsset || existingAsset.quantity < amount) {
       console.error('매도할 수량이 부족합니다.');
       return false;
     }
-    addTransaction('sell', market, price, amount);
+    addTransaction('sell', market, price, amount, source);
     return true;
   };
 
@@ -192,7 +210,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         if (data && data.length > 0) {
           const currentPrice = data[0].trade_price;
           const amountToBuy = strategy.amount / currentPrice;
-          buyAsset(strategy.market, currentPrice, amountToBuy);
+          buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
         }
       } catch (error) { console.error('DCA 실행 실패:', error); }
     } else if (strategy.strategyType === 'ma') {
@@ -216,7 +234,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / candles[0].trade_price;
-            buyAsset(strategy.market, candles[0].trade_price, amountToBuy);
+            buyAsset(strategy.market, candles[0].trade_price, amountToBuy, strategy.id);
           }
         } 
         // Dead Cross
@@ -224,7 +242,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           console.log(`[${strategy.market}] 데드크로스 발생! 매도 실행`);
           const assetToSell = assets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
-            sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity);
+            sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity, strategy.id);
           }
         }
       } catch (error) { console.error('MA 전략 실행 실패:', error); }
@@ -243,16 +261,44 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / candles[0].trade_price;
-            buyAsset(strategy.market, candles[0].trade_price, amountToBuy);
+            buyAsset(strategy.market, candles[0].trade_price, amountToBuy, strategy.id);
           }
         } else if (lastRsi > strategy.sellThreshold) {
           console.log(`[${strategy.market}] RSI 과매수! 매도 실행`);
           const assetToSell = assets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
-            sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity);
+            sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity, strategy.id);
           }
         }
       } catch (error) { console.error('RSI 전략 실행 실패:', error); }
+    } else if (strategy.strategyType === 'bband') {
+      try {
+        const response = await fetch(`/api/candles?market=${strategy.market}&count=${strategy.period + 1}`);
+        const candles = await response.json();
+        if (candles.length < strategy.period + 1) return; // 데이터 부족
+
+        const reversedCandles = [...candles].reverse(); // 시간순으로 정렬
+        const bb = calculateBollingerBands(reversedCandles, strategy.period, strategy.multiplier);
+        
+        const currentPrice = reversedCandles[reversedCandles.length - 1].trade_price;
+        const lastUpper = bb.upper[bb.upper.length - 1];
+        const lastLower = bb.lower[bb.lower.length - 1];
+
+        if (currentPrice < lastLower) {
+          console.log(`[${strategy.market}] 볼린저 밴드 하단 터치! 매수 실행`);
+          const krwAmount = cash * 0.5; // 보유 현금의 50% 매수
+          if (krwAmount > 5000) {
+            const amountToBuy = krwAmount / currentPrice;
+            buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
+          }
+        } else if (currentPrice > lastUpper) {
+          console.log(`[${strategy.market}] 볼린저 밴드 상단 터치! 매도 실행`);
+          const assetToSell = assets.find(a => a.market === strategy.market);
+          if (assetToSell && assetToSell.quantity > 0) {
+            sellAsset(strategy.market, currentPrice, assetToSell.quantity * 0.5, strategy.id); // 보유 수량의 50% 매도
+          }
+        }
+      } catch (error) { console.error('BBand 전략 실행 실패:', error); }
     }
   };
 

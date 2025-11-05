@@ -46,9 +46,9 @@ export default function TradeModal({ show, handleClose, ticker }: TradeModalProp
 
     let success = false;
     if (orderType === 'buy') {
-      success = buyAsset(ticker.market, ticker.trade_price, numericAmount);
+      success = buyAsset(ticker.market, ticker.trade_price, numericAmount, 'manual');
     } else {
-      success = sellAsset(ticker.market, ticker.trade_price, numericAmount);
+      success = sellAsset(ticker.market, ticker.trade_price, numericAmount, 'manual');
     }
 
     if (success) {

@@ -16,6 +16,8 @@ export default function AutoTrader() {
   const [rsiPeriod, setRsiPeriod] = useState('14');
   const [rsiBuyThreshold, setRsiBuyThreshold] = useState('30');
   const [rsiSellThreshold, setRsiSellThreshold] = useState('70');
+  const [bbandPeriod, setBbandPeriod] = useState('20');
+  const [bbandMultiplier, setBbandMultiplier] = useState('2');
 
   const availableMarkets = [
     'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA', 
@@ -53,6 +55,14 @@ export default function AutoTrader() {
           sellThreshold: parseInt(rsiSellThreshold, 10),
         };
         break;
+      case 'bband':
+        strategyConfig = {
+          strategyType: 'bband',
+          market,
+          period: parseInt(bbandPeriod, 10),
+          multiplier: parseInt(bbandMultiplier, 10),
+        };
+        break;
       default:
         return;
     }
@@ -72,6 +82,7 @@ export default function AutoTrader() {
               <option value="dca">적립식 (DCA)</option>
               <option value="ma">이동평균선 교차</option>
               <option value="rsi">RSI</option>
+              <option value="bband">볼린저 밴드</option>
             </select></div>
           </div>
 
@@ -122,13 +133,25 @@ export default function AutoTrader() {
                 <div className="form-group-header"><label htmlFor="rsi-buy-threshold-input">과매도 기준 (매수)</label></div>
                 <div className="form-group-body"><input id="rsi-buy-threshold-input" type="number" className="form-control" value={rsiBuyThreshold} onChange={e => setRsiBuyThreshold(e.target.value)} /></div>
               </div>
-              <div className="form-group mb-3 col-8">
-                <div className="form-group-header"><label htmlFor="rsi-sell-threshold-input">과매수 기준 (매도)</label></div>
-                <div className="form-group-body"><input id="rsi-sell-threshold-input" type="number" className="form-control" value={rsiSellThreshold} onChange={e => setRsiSellThreshold(e.target.value)} /></div>
-              </div>
-            </>
-          )}
-
+                            <div className="form-group mb-3 col-8">
+                              <div className="form-group-header"><label htmlFor="rsi-sell-threshold-input">과매수 기준 (매도)</label></div>
+                              <div className="form-group-body"><input id="rsi-sell-threshold-input" type="number" className="form-control" value={rsiSellThreshold} onChange={e => setRsiSellThreshold(e.target.value)} /></div>
+                            </div>
+                          </> 
+                        )}
+              
+                        {strategyType === 'bband' && (
+                          <>
+                            <div className="form-group mb-3 col-8">
+                              <div className="form-group-header"><label htmlFor="bband-period-input">기간</label></div>
+                              <div className="form-group-body"><input id="bband-period-input" type="number" className="form-control" value={bbandPeriod} onChange={e => setBbandPeriod(e.target.value)} /></div>
+                            </div>
+                            <div className="form-group mb-3 col-8">
+                              <div className="form-group-header"><label htmlFor="bband-multiplier-input">승수</label></div>
+                              <div className="form-group-body"><input id="bband-multiplier-input" type="number" className="form-control" value={bbandMultiplier} onChange={e => setBbandMultiplier(e.target.value)} step="0.1"/></div>
+                            </div>
+                          </>
+                        )}
           <div className="d-flex flex-justify-center mt-3">
             <button type="submit" className="btn btn-primary">전략 추가</button>
           </div>
@@ -151,6 +174,7 @@ export default function AutoTrader() {
                     {s.strategyType === 'dca' && `적립식 (${s.amount.toLocaleString()}원 / ${s.interval})`}
                     {s.strategyType === 'ma' && `이평선 교차 (${s.shortPeriod} / ${s.longPeriod})`}
                     {s.strategyType === 'rsi' && `RSI (${s.period}, ${s.buyThreshold}/${s.sellThreshold})`}
+                    {s.strategyType === 'bband' && `볼린저 밴드 (${s.period}, ${s.multiplier})`}
                   </span>
                 </div>
                 <button className="btn btn-danger btn-sm" onClick={() => stopStrategy(s.id)}>중지</button>

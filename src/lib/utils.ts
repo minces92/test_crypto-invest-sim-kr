@@ -74,3 +74,35 @@ export function calculateRSI(data: Candle[], period: number = 14): number[] {
 
   return rsi;
 }
+
+
+interface BollingerBands {
+  upper: number[];
+  middle: number[];
+  lower: number[];
+}
+
+/**
+ * 볼린저 밴드를 계산합니다.
+ * @param data - 캔들 데이터 배열
+ * @param period - 이동평균 및 표준편차 기간
+ * @param multiplier - 표준편차 승수
+ * @returns 상단, 중간, 하단 밴드 값의 배열을 포함하는 객체
+ */
+export function calculateBollingerBands(data: Candle[], period: number, multiplier: number): BollingerBands {
+  const middle = calculateSMA(data, period);
+  const upper: number[] = [];
+  const lower: number[] = [];
+
+  for (let i = 0; i <= data.length - period; i++) {
+    const slice = data.slice(i, i + period).map(d => d.trade_price);
+    const mean = middle[i];
+    const variance = slice.reduce((acc, val) => acc + Math.pow(val - mean, 2), 0) / period;
+    const stdDev = Math.sqrt(variance);
+
+    upper.push(mean + stdDev * multiplier);
+    lower.push(mean - stdDev * multiplier);
+  }
+
+  return { upper, middle, lower };
+}

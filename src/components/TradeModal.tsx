@@ -171,12 +171,35 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
           </div>
 
         </div>
-        <div className="Box-footer d-flex flex-justify-end">
-          <button type="button" className="btn mr-2" onClick={handleClose}>취소</button>
+        <div className="Box-footer d-flex flex-justify-end" style={{ 
+          padding: '16px', 
+          borderTop: '1px solid var(--color-border-default)',
+          backgroundColor: '#fff',
+          position: 'sticky',
+          bottom: 0,
+          zIndex: 10
+        }}>
+          <button 
+            type="button" 
+            className="btn mr-2" 
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleClose();
+            }}
+            style={{ cursor: 'pointer', minWidth: '80px' }}
+          >
+            취소
+          </button>
           <button 
             type="button" 
             className={`btn ${orderType === 'buy' ? 'btn-danger' : 'btn-primary'}`}
-            onClick={handleTrade}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              handleTrade();
+            }}
+            style={{ cursor: 'pointer', minWidth: '80px' }}
           >
             {orderType === 'buy' ? '매수' : '매도'}
           </button>

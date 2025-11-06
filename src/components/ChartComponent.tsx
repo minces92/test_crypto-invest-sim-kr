@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
-import { calculateSMA } from '@/lib/utils';
+import { createChart, IChartApi, ISeriesApi, UTCTimestamp, SeriesMarker, Time } from 'lightweight-charts';
+import { calculateSMA, calculateEMA, calculateRSI, calculateBollingerBands, calculateMACD } from '@/lib/utils';
+import { usePortfolio } from '@/context/PortfolioContext';
 
 interface CandleData {
   candle_date_time_utc: string;
@@ -25,13 +26,40 @@ interface ChartDataPoint {
   close: number;
 }
 
+interface IndicatorConfig {
+  sma: boolean;
+  ema: boolean;
+  rsi: boolean;
+  macd: boolean;
+  bollinger: boolean;
+}
+
 export default function ChartComponent({ market }: ChartComponentProps) {
   const chartContainerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const smaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bollingerUpperRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bollingerMiddleRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bollingerLowerRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const rsiChartRef = useRef<IChartApi | null>(null);
+  const rsiSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const macdChartRef = useRef<IChartApi | null>(null);
+  const macdLineRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const macdSignalRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const macdHistogramRef = useRef<ISeriesApi<'Histogram'> | null>(null);
+  const markersRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
 
+  const { transactions } = usePortfolio();
   const [loading, setLoading] = useState(true);
+  const [indicators, setIndicators] = useState<IndicatorConfig>({
+    sma: true,
+    ema: false,
+    rsi: false,
+    macd: false,
+    bollinger: false,
+  });
 
   useEffect(() => {
     if (!market) return;
@@ -57,7 +85,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
         if (!chartRef.current) {
           chartRef.current = createChart(chartContainerRef.current, {
             width: chartContainerRef.current.clientWidth,
-            height: 300,
+            height: 400,
             layout: {
               background: { color: '#ffffff' },
               textColor: '#333',
@@ -81,20 +109,224 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           smaSeriesRef.current = chartRef.current.addLineSeries({
             color: '#FFA500', // 주황색
             lineWidth: 2,
+            title: 'SMA(20)',
+          });
+          emaSeriesRef.current = chartRef.current.addLineSeries({
+            color: '#00FF00', // 녹색
+            lineWidth: 2,
+            title: 'EMA(12)',
+            visible: false,
+          });
+          bollingerUpperRef.current = chartRef.current.addLineSeries({
+            color: '#888888',
+            lineWidth: 1,
+            lineStyle: 2, // dashed
+            title: 'BB Upper',
+            visible: false,
+          });
+          bollingerMiddleRef.current = chartRef.current.addLineSeries({
+            color: '#666666',
+            lineWidth: 1,
+            title: 'BB Middle',
+            visible: false,
+          });
+          bollingerLowerRef.current = chartRef.current.addLineSeries({
+            color: '#888888',
+            lineWidth: 1,
+            lineStyle: 2, // dashed
+            title: 'BB Lower',
+            visible: false,
           });
         }
 
         candlestickSeriesRef.current?.setData(chartData);
 
+        // 데이터 준비
+        const candleDataForCalc = chartData.map(d => ({ trade_price: d.close }));
+        const rawCandleData: CandleData[] = rawData.reverse();
+
         // SMA 계산 및 설정
-        const smaPeriod = 20;
-        const smaDataForCalc = chartData.map(d => ({ trade_price: d.close }));
-        const smaResult = calculateSMA(smaDataForCalc, smaPeriod);
-        const smaChartData = smaResult.map((value, index) => ({
-          time: chartData[index + smaPeriod - 1].time,
-          value,
+        if (indicators.sma) {
+          const smaPeriod = 20;
+          const smaResult = calculateSMA(candleDataForCalc, smaPeriod);
+          const smaChartData = smaResult.map((value, index) => ({
+            time: chartData[index + smaPeriod - 1].time,
+            value,
+          }));
+          smaSeriesRef.current?.setData(smaChartData);
+          smaSeriesRef.current?.applyOptions({ visible: true });
+        } else {
+          smaSeriesRef.current?.applyOptions({ visible: false });
+        }
+
+        // EMA 계산 및 설정
+        if (indicators.ema) {
+          const emaPeriod = 12;
+          const emaResult = calculateEMA(candleDataForCalc, emaPeriod);
+          const emaChartData = emaResult.map((value, index) => ({
+            time: chartData[index + emaPeriod - 1].time,
+            value,
+          }));
+          emaSeriesRef.current?.setData(emaChartData);
+          emaSeriesRef.current?.applyOptions({ visible: true });
+        } else {
+          emaSeriesRef.current?.applyOptions({ visible: false });
+        }
+
+        // 볼린저 밴드 계산 및 설정
+        if (indicators.bollinger) {
+          const bbPeriod = 20;
+          const bbMultiplier = 2;
+          const bb = calculateBollingerBands(candleDataForCalc, bbPeriod, bbMultiplier);
+          
+          const bbUpperData = bb.upper.map((value, index) => ({
+            time: chartData[index + bbPeriod - 1].time,
+            value,
+          }));
+          const bbMiddleData = bb.middle.map((value, index) => ({
+            time: chartData[index + bbPeriod - 1].time,
+            value,
+          }));
+          const bbLowerData = bb.lower.map((value, index) => ({
+            time: chartData[index + bbPeriod - 1].time,
+            value,
+          }));
+          
+          bollingerUpperRef.current?.setData(bbUpperData);
+          bollingerMiddleRef.current?.setData(bbMiddleData);
+          bollingerLowerRef.current?.setData(bbLowerData);
+          bollingerUpperRef.current?.applyOptions({ visible: true });
+          bollingerMiddleRef.current?.applyOptions({ visible: true });
+          bollingerLowerRef.current?.applyOptions({ visible: true });
+        } else {
+          bollingerUpperRef.current?.applyOptions({ visible: false });
+          bollingerMiddleRef.current?.applyOptions({ visible: false });
+          bollingerLowerRef.current?.applyOptions({ visible: false });
+        }
+
+        // 거래 내역 마커 추가
+        const marketTransactions = transactions.filter(tx => tx.market === market);
+        const markers: SeriesMarker<Time>[] = marketTransactions.map(tx => ({
+          time: (new Date(tx.timestamp).getTime() / 1000) as UTCTimestamp,
+          position: tx.type === 'buy' ? 'belowBar' : 'aboveBar',
+          color: tx.type === 'buy' ? '#00ff00' : '#ff0000',
+          shape: tx.type === 'buy' ? 'arrowUp' : 'arrowDown',
+          text: `${tx.type === 'buy' ? '매수' : '매도'} ${tx.amount.toFixed(4)}`,
         }));
-        smaSeriesRef.current?.setData(smaChartData);
+        candlestickSeriesRef.current?.setMarkers(markers);
+
+        // RSI 차트 렌더링
+        if (indicators.rsi) {
+          const rsiContainer = document.getElementById(`rsi-chart-${market}`);
+          if (rsiContainer) {
+            if (!rsiChartRef.current) {
+              rsiChartRef.current = createChart(rsiContainer, {
+                width: rsiContainer.clientWidth,
+                height: 150,
+                layout: {
+                  background: { color: '#ffffff' },
+                  textColor: '#333',
+                },
+                timeScale: {
+                  timeVisible: true,
+                  secondsVisible: false,
+                },
+              });
+              rsiSeriesRef.current = rsiChartRef.current.addLineSeries({
+                color: '#9b59b6',
+                lineWidth: 2,
+                title: 'RSI',
+              });
+            }
+            
+            const rsi = calculateRSI(candleDataForCalc, 14);
+            if (rsi.length > 0) {
+              const rsiData = rsi.map((value, index) => ({
+                time: chartData[index + 15].time,
+                value: Math.min(100, Math.max(0, value)), // RSI는 0-100 범위
+              }));
+              rsiSeriesRef.current?.setData(rsiData);
+              rsiChartRef.current.timeScale().fitContent();
+            }
+          }
+        } else {
+          if (rsiChartRef.current) {
+            rsiChartRef.current.remove();
+            rsiChartRef.current = null;
+            rsiSeriesRef.current = null;
+          }
+        }
+
+        // MACD 차트 렌더링
+        if (indicators.macd) {
+          const macdContainer = document.getElementById(`macd-chart-${market}`);
+          if (macdContainer) {
+            if (!macdChartRef.current) {
+              macdChartRef.current = createChart(macdContainer, {
+                width: macdContainer.clientWidth,
+                height: 150,
+                layout: {
+                  background: { color: '#ffffff' },
+                  textColor: '#333',
+                },
+                timeScale: {
+                  timeVisible: true,
+                  secondsVisible: false,
+                },
+              });
+              macdLineRef.current = macdChartRef.current.addLineSeries({
+                color: '#3498db',
+                lineWidth: 2,
+                title: 'MACD',
+              });
+              macdSignalRef.current = macdChartRef.current.addLineSeries({
+                color: '#e74c3c',
+                lineWidth: 1,
+                title: 'Signal',
+              });
+              macdHistogramRef.current = macdChartRef.current.addHistogramSeries({
+                color: '#95a5a6',
+                priceFormat: {
+                  type: 'volume',
+                },
+                title: 'Histogram',
+              });
+            }
+            
+            const macd = calculateMACD(candleDataForCalc, 12, 26, 9);
+            if (macd.macdLine.length > 0) {
+              const macdOffset = chartData.length - macd.macdLine.length;
+              const macdData = macd.macdLine.map((value, index) => ({
+                time: chartData[macdOffset + index].time,
+                value,
+              }));
+              const signalOffset = macd.macdLine.length - macd.signalLine.length;
+              const signalData = macd.signalLine.map((value, index) => ({
+                time: chartData[macdOffset + signalOffset + index].time,
+                value,
+              }));
+              const histogramData = macd.histogram.map((value, index) => ({
+                time: chartData[macdOffset + signalOffset + index].time,
+                value,
+                color: value >= 0 ? '#2ecc71' : '#e74c3c',
+              }));
+              
+              macdLineRef.current?.setData(macdData);
+              macdSignalRef.current?.setData(signalData);
+              macdHistogramRef.current?.setData(histogramData);
+              
+              macdChartRef.current.timeScale().fitContent();
+            }
+          }
+        } else {
+          if (macdChartRef.current) {
+            macdChartRef.current.remove();
+            macdChartRef.current = null;
+            macdLineRef.current = null;
+            macdSignalRef.current = null;
+            macdHistogramRef.current = null;
+          }
+        }
 
         chartRef.current.timeScale().fitContent();
 
@@ -109,8 +341,15 @@ export default function ChartComponent({ market }: ChartComponentProps) {
 
     // Resize observer
     const handleResize = () => {
-      if (chartRef.current) {
-        chartRef.current.applyOptions({ width: chartContainerRef.current?.clientWidth });
+      if (chartContainerRef.current) {
+        const width = chartContainerRef.current.clientWidth;
+        chartRef.current?.applyOptions({ width });
+        if (rsiChartRef.current) {
+          rsiChartRef.current.applyOptions({ width });
+        }
+        if (macdChartRef.current) {
+          macdChartRef.current.applyOptions({ width });
+        }
       }
     };
 
@@ -119,24 +358,79 @@ export default function ChartComponent({ market }: ChartComponentProps) {
     // Cleanup
     return () => {
       window.removeEventListener('resize', handleResize);
-      // Do not remove the chart here to persist it between modal opens
     };
-  }, [market]);
+  }, [market, indicators, transactions]);
 
-  // Cleanup chart on component unmount
+  // Cleanup charts on component unmount
   useEffect(() => {
     return () => {
       if (chartRef.current) {
         chartRef.current.remove();
         chartRef.current = null;
       }
+      if (rsiChartRef.current) {
+        rsiChartRef.current.remove();
+        rsiChartRef.current = null;
+      }
+      if (macdChartRef.current) {
+        macdChartRef.current.remove();
+        macdChartRef.current = null;
+      }
     }
   }, []);
 
   return (
-    <div style={{ width: '100%', height: '300px', position: 'relative' }}>
-      {loading && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)' }}>차트 로딩 중...</div>}
-      <div ref={chartContainerRef} style={{ width: '100%', height: '100%' }} />
+    <div style={{ width: '100%', position: 'relative' }}>
+      <div style={{ marginBottom: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <input
+            type="checkbox"
+            checked={indicators.sma}
+            onChange={(e) => setIndicators({ ...indicators, sma: e.target.checked })}
+          />
+          SMA(20)
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <input
+            type="checkbox"
+            checked={indicators.ema}
+            onChange={(e) => setIndicators({ ...indicators, ema: e.target.checked })}
+          />
+          EMA(12)
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <input
+            type="checkbox"
+            checked={indicators.bollinger}
+            onChange={(e) => setIndicators({ ...indicators, bollinger: e.target.checked })}
+          />
+          볼린저밴드
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <input
+            type="checkbox"
+            checked={indicators.rsi}
+            onChange={(e) => setIndicators({ ...indicators, rsi: e.target.checked })}
+          />
+          RSI
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <input
+            type="checkbox"
+            checked={indicators.macd}
+            onChange={(e) => setIndicators({ ...indicators, macd: e.target.checked })}
+          />
+          MACD
+        </label>
+      </div>
+      {loading && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 10 }}>차트 로딩 중...</div>}
+      <div ref={chartContainerRef} style={{ width: '100%', height: '400px' }} />
+      {indicators.rsi && (
+        <div id={`rsi-chart-${market}`} style={{ width: '100%', height: '150px', marginTop: '10px' }} />
+      )}
+      {indicators.macd && (
+        <div id={`macd-chart-${market}`} style={{ width: '100%', height: '150px', marginTop: '10px' }} />
+      )}
     </div>
   );
 }

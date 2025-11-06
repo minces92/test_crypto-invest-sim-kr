@@ -222,8 +222,56 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         const data = await response.json();
         if (data && data.length > 0) {
           const currentPrice = data[0].trade_price;
-          const amountToBuy = strategy.amount / currentPrice;
-          buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
+          const change24h = data[0].signed_change_rate * 100 || 0;
+          
+          // AI 검증 (옵션, 환경변수로 활성화)
+          const useAI = process.env.NEXT_PUBLIC_USE_AI_VERIFICATION === 'true';
+          if (useAI) {
+            try {
+              const aiResponse = await fetch('/api/ai/analyze', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  market: strategy.market,
+                  currentPrice,
+                  change24h,
+                }),
+              });
+              
+              if (aiResponse.ok) {
+                const aiData = await aiResponse.json();
+                const analysis = aiData.analysis;
+                
+                // AI가 매수 신호를 차단하면 건너뛰기
+                if (analysis.recommendation === '매도' && analysis.confidence > 0.7) {
+                  console.log(`[${strategy.market}] AI가 DCA 매수를 차단했습니다. 이유: ${analysis.reasoning}`);
+                  return;
+                }
+                
+                // AI 추천 금액 조정
+                let amountToBuy = strategy.amount / currentPrice;
+                if (analysis.recommendation === '매수' && analysis.recommended_amount_percent) {
+                  const adjustedAmount = strategy.amount * (analysis.recommended_amount_percent / 100);
+                  amountToBuy = adjustedAmount / currentPrice;
+                  console.log(`[${strategy.market}] AI 추천에 따라 매수 금액 조정: ${analysis.recommended_amount_percent}%`);
+                }
+                
+                buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
+              } else {
+                // AI 실패 시 기본 DCA 실행
+                const amountToBuy = strategy.amount / currentPrice;
+                buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
+              }
+            } catch (aiError) {
+              console.warn('AI 검증 실패, 기본 DCA 실행:', aiError);
+              const amountToBuy = strategy.amount / currentPrice;
+              buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
+            }
+          } else {
+            // AI 미사용 시 기본 DCA 실행
+            const amountToBuy = strategy.amount / currentPrice;
+            buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
+          }
         }
       } catch (error) { console.error('DCA 실행 실패:', error); }
     } else if (strategy.strategyType === 'ma') {
@@ -235,12 +283,24 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         const reversedCandles = [...candles].reverse(); // 시간순으로 정렬
         const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
 
+        // 이동평균 계산
+        const shortMA = calculateSMA(reversedCandles, strategy.shortPeriod);
+        const longMA = calculateSMA(reversedCandles, strategy.longPeriod);
+        
+        if (shortMA.length < 2 || longMA.length < 2) return;
+
+        const lastShort = shortMA[shortMA.length - 1];
+        const lastLong = longMA[longMA.length - 1];
+        const prevShort = shortMA[shortMA.length - 2];
+        const prevLong = longMA[longMA.length - 2];
+        const currentPrice = reversedCandles[reversedCandles.length - 1].trade_price;
+
         // Golden Cross
         if (lastShort > lastLong && prevShort <= prevLong) {
           const krwAmount = currentCash * 0.5; // 보유 현금의 50% 매수
           if (krwAmount > 5000) {
-            const amountToBuy = krwAmount / candles[0].trade_price;
-            buyAsset(strategy.market, candles[0].trade_price, amountToBuy, strategy.id);
+            const amountToBuy = krwAmount / currentPrice;
+            buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id);
           }
         } 
         // Dead Cross
@@ -248,7 +308,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           console.log(`[${strategy.market}] 데드크로스 발생! 매도 실행`);
           const assetToSell = currentAssets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
-            sellAsset(strategy.market, candles[0].trade_price, assetToSell.quantity, strategy.id);
+            sellAsset(strategy.market, currentPrice, assetToSell.quantity, strategy.id);
           }
         }
       } catch (error) { console.error('MA 전략 실행 실패:', error); }
@@ -350,11 +410,11 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const startStrategy = async (strategyConfig: Omit<Strategy, 'id' | 'isActive'>) => {
-    const newStrategy: Strategy = {
+    const newStrategy = {
       ...strategyConfig,
       id: new Date().toISOString() + Math.random(),
       isActive: true,
-    };
+    } as Strategy;
 
     try {
       const response = await fetch('/api/strategies', {
@@ -369,7 +429,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
       let intervalMilliseconds = 30000; // default for MA
       if (savedStrategy.strategyType === 'dca') {
-        intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[savedStrategy.interval] || 24000;
+        const intervalMap: { [key: string]: number } = { daily: 24000, weekly: 60000, monthly: 300000 };
+        intervalMilliseconds = intervalMap[savedStrategy.interval] || 24000;
       } else if (savedStrategy.strategyType === 'news') {
         intervalMilliseconds = 300000; // Check news every 5 minutes
       }

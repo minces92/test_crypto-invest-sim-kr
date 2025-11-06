@@ -2,6 +2,13 @@ interface Candle {
   trade_price: number;
 }
 
+interface CandleData {
+  opening_price: number;
+  high_price: number;
+  low_price: number;
+  trade_price: number;
+}
+
 /**
  * 단순이동평균(SMA)을 계산합니다.
  * @param data - 캔들 데이터 배열
@@ -105,4 +112,117 @@ export function calculateBollingerBands(data: Candle[], period: number, multipli
   }
 
   return { upper, middle, lower };
+}
+
+/**
+ * 지수이동평균(EMA)을 계산합니다.
+ * @param data - 캔들 데이터 배열
+ * @param period - 이동평균 기간
+ * @returns EMA 값의 배열
+ */
+export function calculateEMA(data: Candle[], period: number): number[] {
+  const ema: number[] = [];
+  if (data.length < period) return ema;
+
+  const multiplier = 2 / (period + 1);
+  
+  // 첫 번째 EMA는 SMA로 시작
+  const firstSMA = data.slice(0, period).reduce((sum, d) => sum + d.trade_price, 0) / period;
+  ema.push(firstSMA);
+  
+  for (let i = period; i < data.length; i++) {
+    const currentEMA = (data[i].trade_price - ema[ema.length - 1]) * multiplier + ema[ema.length - 1];
+    ema.push(currentEMA);
+  }
+  
+  return ema;
+}
+
+/**
+ * MACD (Moving Average Convergence Divergence)를 계산합니다.
+ * @param data - 캔들 데이터 배열
+ * @param fastPeriod - 빠른 기간 (기본값: 12)
+ * @param slowPeriod - 느린 기간 (기본값: 26)
+ * @param signalPeriod - 시그널 기간 (기본값: 9)
+ * @returns MACD 라인, 시그널 라인, 히스토그램을 포함하는 객체
+ */
+export interface MACDResult {
+  macdLine: number[];
+  signalLine: number[];
+  histogram: number[];
+}
+
+export function calculateMACD(
+  data: Candle[],
+  fastPeriod: number = 12,
+  slowPeriod: number = 26,
+  signalPeriod: number = 9
+): MACDResult {
+  const fastEMA = calculateEMA(data, fastPeriod);
+  const slowEMA = calculateEMA(data, slowPeriod);
+  
+  // MACD 라인 = 빠른 EMA - 느린 EMA
+  const macdLine: number[] = [];
+  const minLength = Math.min(fastEMA.length, slowEMA.length);
+  const fastOffset = data.length - fastEMA.length;
+  const slowOffset = data.length - slowEMA.length;
+  
+  for (let i = 0; i < minLength; i++) {
+    const fastIdx = fastOffset + i;
+    const slowIdx = slowOffset + i;
+    macdLine.push(fastEMA[i] - slowEMA[i]);
+  }
+  
+  // 시그널 라인 = MACD 라인의 EMA
+  const macdAsCandles: Candle[] = macdLine.map(val => ({ trade_price: val }));
+  const signalLine = calculateEMA(macdAsCandles, signalPeriod);
+  
+  // 히스토그램 = MACD 라인 - 시그널 라인
+  const histogram: number[] = [];
+  const signalOffset = macdLine.length - signalLine.length;
+  for (let i = 0; i < signalLine.length; i++) {
+    histogram.push(macdLine[signalOffset + i] - signalLine[i]);
+  }
+  
+  return { macdLine, signalLine, histogram };
+}
+
+/**
+ * ATR (Average True Range)를 계산합니다.
+ * @param data - 캔들 데이터 배열 (high_price, low_price, trade_price 포함)
+ * @param period - ATR 기간 (기본값: 14)
+ * @returns ATR 값의 배열
+ */
+export function calculateATR(data: CandleData[], period: number = 14): number[] {
+  const trueRanges: number[] = [];
+  
+  if (data.length < 2) return [];
+  
+  for (let i = 1; i < data.length; i++) {
+    const high = data[i].high_price;
+    const low = data[i].low_price;
+    const prevClose = data[i - 1].trade_price;
+    
+    const tr = Math.max(
+      high - low,
+      Math.abs(high - prevClose),
+      Math.abs(low - prevClose)
+    );
+    trueRanges.push(tr);
+  }
+  
+  if (trueRanges.length < period) return [];
+  
+  // 첫 ATR은 SMA로 계산
+  const atr: number[] = [];
+  let sum = trueRanges.slice(0, period).reduce((a, b) => a + b, 0);
+  atr.push(sum / period);
+  
+  // 이후는 지수 이동평균 방식으로 계산
+  for (let i = period; i < trueRanges.length; i++) {
+    const currentATR = (atr[atr.length - 1] * (period - 1) + trueRanges[i]) / period;
+    atr.push(currentATR);
+  }
+  
+  return atr;
 }

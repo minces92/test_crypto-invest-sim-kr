@@ -19,6 +19,9 @@ export default function AutoTrader() {
   const [bbandPeriod, setBbandPeriod] = useState('20');
   const [bbandMultiplier, setBbandMultiplier] = useState('2');
   const [sentimentThreshold, setSentimentThreshold] = useState<'positive' | 'negative'>('positive');
+  const [volatilityMultiplier, setVolatilityMultiplier] = useState('0.5');
+  const [momentumPeriod, setMomentumPeriod] = useState('10');
+  const [momentumThreshold, setMomentumThreshold] = useState('5');
 
   const availableMarkets = [
     'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA', 
@@ -86,12 +89,14 @@ export default function AutoTrader() {
         <form onSubmit={handleAddStrategy} className="d-flex flex-column flex-items-center">
           <div className="form-group mb-3 col-8">
             <div className="form-group-header"><label htmlFor="strategy-select">전략 선택</label></div>
-            <div className="form-group-body"><select id="strategy-select" className="form-select" value={strategyType} onChange={e => setStrategyType(e.target.value)}>
+            <div className="form-group-body">            <select id="strategy-select" className="form-select" value={strategyType} onChange={e => setStrategyType(e.target.value)}>
               <option value="dca">적립식 (DCA)</option>
               <option value="ma">이동평균선 교차</option>
               <option value="rsi">RSI</option>
               <option value="bband">볼린저 밴드</option>
               <option value="news">뉴스 기반</option>
+              <option value="volatility">변동성 돌파</option>
+              <option value="momentum">모멘텀</option>
             </select></div>
           </div>
 
@@ -195,6 +200,8 @@ export default function AutoTrader() {
                     {s.strategyType === 'rsi' && `RSI (${s.period}, ${s.buyThreshold}/${s.sellThreshold})`}
                     {s.strategyType === 'bband' && `볼린저 밴드 (${s.period}, ${s.multiplier})`}
                     {s.strategyType === 'news' && `뉴스 기반 (${s.sentimentThreshold === 'positive' ? '긍정' : '부정'})`}
+                    {s.strategyType === 'volatility' && `변동성 돌파 (승수: ${s.multiplier})`}
+                    {s.strategyType === 'momentum' && `모멘텀 (기간: ${s.period}, 임계값: ${s.threshold}%)`}
                   </span>
                 </div>
                 <button className="btn btn-danger btn-sm" onClick={() => stopStrategy(s.id)}>중지</button>

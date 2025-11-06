@@ -9,6 +9,7 @@ import NewsFeed from "@/components/NewsFeed";
 import AutoTrader from "@/components/AutoTrader";
 import TradeModal from '@/components/TradeModal';
 import MultiChartComponent from '@/components/MultiChartComponent';
+import OllamaStatus from '@/components/OllamaStatus';
 
 interface Ticker {
   market: string;
@@ -54,6 +55,7 @@ export default function Home() {
           <div className="col-12 col-lg-12 mb-4">
             <Portfolio handleOpenModal={handleOpenModal} />
             <AutoTrader />
+            <OllamaStatus />
           </div>
         </div>
       </div>

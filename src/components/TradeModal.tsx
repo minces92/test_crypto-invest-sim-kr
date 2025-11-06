@@ -92,8 +92,40 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
   if (!show || !ticker) return null;
 
   return (
-    <div className="Box-overlay d-flex flex-justify-center flex-items-center" style={{ zIndex: 100 }}>
-      <div className="Box" style={{ minWidth: '500px' }}>
+    <div 
+      className="Box-overlay d-flex flex-justify-center flex-items-center" 
+      style={{ 
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+        zIndex: 9999,
+        overflow: 'auto',
+        padding: '20px'
+      }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          handleClose();
+        }
+      }}
+    >
+      <div 
+        className="Box" 
+        style={{ 
+          minWidth: '500px',
+          maxWidth: '800px',
+          width: '90%',
+          maxHeight: '90vh',
+          overflow: 'auto',
+          position: 'relative',
+          backgroundColor: '#fff',
+          borderRadius: '8px',
+          boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)'
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="Box-header Box-header--divided">
           <h5 className="Box-title">{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')}) 거래</h5>
           <button type="button" className="close-button" onClick={handleClose}>

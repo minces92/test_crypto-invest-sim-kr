@@ -30,5 +30,20 @@
     "sentimentThreshold": "positive",
     "id": "2025-11-06T00:49:35.044Z0.8359999203490596",
     "isActive": true
+  },
+  {
+    "strategyType": "volatility",
+    "market": "KRW-BTC",
+    "multiplier": 0.5,
+    "id": "2025-11-06T02:12:33.118Z0.22621238242663178",
+    "isActive": true
+  },
+  {
+    "strategyType": "momentum",
+    "market": "KRW-BTC",
+    "period": 10,
+    "threshold": 5,
+    "id": "2025-11-06T02:12:35.795Z0.19979935043426233",
+    "isActive": true
   }
 ]

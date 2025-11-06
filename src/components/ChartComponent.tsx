@@ -71,7 +71,17 @@ export default function ChartComponent({ market }: ChartComponentProps) {
       setLoading(true);
       try {
         const response = await fetch(`/api/candles?market=${market}&count=90`);
+        if (!response.ok) {
+          throw new Error(`API error: ${response.status}`);
+        }
         const rawData: CandleData[] = await response.json();
+        
+        if (!rawData || rawData.length === 0) {
+          console.error('No chart data received');
+          setLoading(false);
+          return;
+        }
+
         const chartData: ChartDataPoint[] = rawData
           .map(d => ({
             time: (new Date(d.candle_date_time_utc).getTime() / 1000) as UTCTimestamp,
@@ -82,7 +92,17 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           }))
           .reverse(); // 시간순으로 정렬
 
-        if (!chartContainerRef.current) return;
+        if (!chartContainerRef.current) {
+          console.error('Chart container not found');
+          setLoading(false);
+          return;
+        }
+
+        if (chartData.length === 0) {
+          console.error('No chart data after processing');
+          setLoading(false);
+          return;
+        }
 
         // 차트가 없으면 생성
         if (!chartRef.current) {
@@ -154,7 +174,12 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           });
         }
 
-        candlestickSeriesRef.current?.setData(chartData);
+        // 캔들 데이터 설정
+        if (candlestickSeriesRef.current) {
+          candlestickSeriesRef.current.setData(chartData);
+        } else {
+          console.error('Candlestick series not initialized');
+        }
 
         // 거래량 데이터 추가
         if (volumeSeriesRef.current && rawCandleData.length > 0) {
@@ -170,8 +195,11 @@ export default function ChartComponent({ market }: ChartComponentProps) {
               color: isUp ? 'rgba(210, 79, 69, 0.5)' : 'rgba(18, 97, 196, 0.5)', // 양봉/음봉 색상
             };
           }).filter(d => d.value > 0);
-          volumeSeriesRef.current.setData(volumeData);
-          volumeSeriesRef.current.applyOptions({ visible: showVolume });
+          
+          if (volumeData.length > 0) {
+            volumeSeriesRef.current.setData(volumeData);
+            volumeSeriesRef.current.applyOptions({ visible: showVolume });
+          }
         }
 
         // 데이터 준비
@@ -365,6 +393,16 @@ export default function ChartComponent({ market }: ChartComponentProps) {
 
       } catch (error) {
         console.error('Failed to fetch or render chart data:', error);
+        if (chartContainerRef.current) {
+          chartContainerRef.current.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #f85149;">
+              <div style="text-align: center;">
+                <p>차트 데이터를 불러오지 못했습니다.</p>
+                <p style="font-size: 12px; color: #8b949e;">${error instanceof Error ? error.message : '알 수 없는 오류'}</p>
+              </div>
+            </div>
+          `;
+        }
       } finally {
         setLoading(false);
       }

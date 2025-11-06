@@ -73,9 +73,16 @@ export default function MultiChartComponent({
         const marketDataPromises = selectedMarkets.map(async (market, index) => {
           try {
             const response = await fetch(`/api/candles?market=${market}&count=90`);
+            if (!response.ok) {
+              console.error(`Failed to fetch ${market}: ${response.status}`);
+              return null;
+            }
             const rawData: CandleData[] = await response.json();
             
-            if (rawData.length === 0) return null;
+            if (!rawData || rawData.length === 0) {
+              console.error(`No data for ${market}`);
+              return null;
+            }
 
             const chartData: ChartDataPoint[] = rawData
               .reverse()

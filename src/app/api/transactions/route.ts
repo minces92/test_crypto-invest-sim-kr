@@ -8,10 +8,29 @@ const transactionsFilePath = path.join(process.cwd(), 'transactions.json');
 async function getTransactions() {
   try {
     const data = await fs.readFile(transactionsFilePath, 'utf-8');
-    return JSON.parse(data);
+    // JSON 파싱 전에 빈 문자열이나 잘못된 형식 체크
+    const trimmedData = data.trim();
+    if (!trimmedData || trimmedData === '') {
+      return [];
+    }
+    // JSON 파싱 시도
+    try {
+      return JSON.parse(trimmedData);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      // 파일이 손상된 경우 백업 시도: 마지막 줄의 잘못된 대괄호 제거
+      const fixedData = trimmedData.replace(/\]\s*\]\s*$/, ']');
+      try {
+        return JSON.parse(fixedData);
+      } catch (secondError) {
+        console.error('Failed to fix JSON:', secondError);
+        // 완전히 손상된 경우 빈 배열 반환
+        return [];
+      }
+    }
   } catch (error) {
     // If the file doesn't exist, return an empty array
-    if (error.code === 'ENOENT') {
+    if ((error as any).code === 'ENOENT') {
       return [];
     }
     throw error;

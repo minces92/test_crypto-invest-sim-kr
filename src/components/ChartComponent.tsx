@@ -11,6 +11,7 @@ interface CandleData {
   high_price: number;
   low_price: number;
   trade_price: number;
+  candle_acc_trade_volume?: number; // 거래량
 }
 
 interface ChartComponentProps {
@@ -50,6 +51,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
   const macdSignalRef = useRef<ISeriesApi<'Line'> | null>(null);
   const macdHistogramRef = useRef<ISeriesApi<'Histogram'> | null>(null);
   const markersRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const volumeSeriesRef = useRef<ISeriesApi<'Histogram'> | null>(null);
 
   const { transactions } = usePortfolio();
   const [loading, setLoading] = useState(true);
@@ -137,9 +139,38 @@ export default function ChartComponent({ market }: ChartComponentProps) {
             title: 'BB Lower',
             visible: false,
           });
+          // 거래량 차트 (하단 별도 스케일)
+          volumeSeriesRef.current = chartRef.current.addHistogramSeries({
+            priceFormat: {
+              type: 'volume',
+            },
+            priceScaleId: 'volume',
+            scaleMargins: {
+              top: 0.8,
+              bottom: 0,
+            },
+            title: 'Volume',
+          });
         }
 
         candlestickSeriesRef.current?.setData(chartData);
+
+        // 거래량 데이터 추가
+        if (volumeSeriesRef.current && rawData.length > 0) {
+          const volumeData = chartData.map((d, index) => {
+            const raw = rawData.find(r => 
+              Math.abs(new Date(r.candle_date_time_utc).getTime() / 1000 - d.time as number) < 60
+            );
+            const volume = raw?.candle_acc_trade_volume || 0;
+            const isUp = d.close >= d.open;
+            return {
+              time: d.time,
+              value: volume,
+              color: isUp ? 'rgba(210, 79, 69, 0.5)' : 'rgba(18, 97, 196, 0.5)', // 양봉/음봉 색상
+            };
+          });
+          volumeSeriesRef.current.setData(volumeData);
+        }
 
         // 데이터 준비
         const candleDataForCalc = chartData.map(d => ({ trade_price: d.close }));
@@ -421,6 +452,17 @@ export default function ChartComponent({ market }: ChartComponentProps) {
             onChange={(e) => setIndicators({ ...indicators, macd: e.target.checked })}
           />
           MACD
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <input
+            type="checkbox"
+            checked={showVolume}
+            onChange={(e) => {
+              setShowVolume(e.target.checked);
+              volumeSeriesRef.current?.applyOptions({ visible: e.target.checked });
+            }}
+          />
+          거래량
         </label>
       </div>
       {loading && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 10 }}>차트 로딩 중...</div>}

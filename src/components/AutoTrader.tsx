@@ -74,6 +74,21 @@ export default function AutoTrader() {
           sentimentThreshold,
         };
         break;
+      case 'volatility':
+        strategyConfig = {
+          strategyType: 'volatility',
+          market,
+          multiplier: parseFloat(volatilityMultiplier),
+        };
+        break;
+      case 'momentum':
+        strategyConfig = {
+          strategyType: 'momentum',
+          market,
+          period: parseInt(momentumPeriod, 10),
+          threshold: parseFloat(momentumThreshold),
+        };
+        break;
       default:
         return;
     }

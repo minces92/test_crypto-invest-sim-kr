@@ -701,6 +701,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         intervalMilliseconds = intervalMap[savedStrategy.interval] || 24000;
       } else if (savedStrategy.strategyType === 'news') {
         intervalMilliseconds = 300000; // Check news every 5 minutes
+      } else if (savedStrategy.strategyType === 'volatility' || savedStrategy.strategyType === 'momentum') {
+        intervalMilliseconds = 60000; // Check every 1 minute for volatility and momentum
       }
   
       executeStrategy(savedStrategy);

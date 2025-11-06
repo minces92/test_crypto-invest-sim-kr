@@ -176,6 +176,31 @@ export default function AutoTrader() {
                             </div>
                           </>
                         )}
+
+          {strategyType === 'volatility' && (
+            <>
+              <div className="form-group mb-3 col-8">
+                <div className="form-group-header"><label htmlFor="volatility-multiplier-input">변동성 승수</label></div>
+                <div className="form-group-body"><input id="volatility-multiplier-input" type="number" className="form-control" value={volatilityMultiplier} onChange={e => setVolatilityMultiplier(e.target.value)} step="0.1" min="0.1" max="2" /></div>
+                <small className="color-fg-muted text-small">전일 고가 + (전일 범위 × 승수)를 돌파하면 매수 (기본값: 0.5)</small>
+              </div>
+            </>
+          )}
+
+          {strategyType === 'momentum' && (
+            <>
+              <div className="form-group mb-3 col-8">
+                <div className="form-group-header"><label htmlFor="momentum-period-input">모멘텀 기간</label></div>
+                <div className="form-group-body"><input id="momentum-period-input" type="number" className="form-control" value={momentumPeriod} onChange={e => setMomentumPeriod(e.target.value)} min="5" max="30" /></div>
+              </div>
+              <div className="form-group mb-3 col-8">
+                <div className="form-group-header"><label htmlFor="momentum-threshold-input">모멘텀 임계값 (%)</label></div>
+                <div className="form-group-body"><input id="momentum-threshold-input" type="number" className="form-control" value={momentumThreshold} onChange={e => setMomentumThreshold(e.target.value)} step="0.5" min="1" max="20" /></div>
+                <small className="color-fg-muted text-small">가격 모멘텀이 이 값을 초과하고 거래량도 증가하면 매수 (기본값: 5%)</small>
+              </div>
+            </>
+          )}
+
           <div className="d-flex flex-justify-center mt-3">
             <button type="submit" className="btn btn-primary">전략 추가</button>
           </div>

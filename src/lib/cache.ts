@@ -65,6 +65,7 @@ export interface CandleCacheData {
   high_price: number;
   low_price: number;
   trade_price: number;
+  candle_acc_trade_volume?: number;
 }
 
 export interface NewsCacheData {

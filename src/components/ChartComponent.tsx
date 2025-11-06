@@ -62,6 +62,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
     macd: false,
     bollinger: false,
   });
+  const [showVolume, setShowVolume] = useState(true);
 
   useEffect(() => {
     if (!market) return;
@@ -156,11 +157,11 @@ export default function ChartComponent({ market }: ChartComponentProps) {
         candlestickSeriesRef.current?.setData(chartData);
 
         // 거래량 데이터 추가
-        if (volumeSeriesRef.current && rawData.length > 0) {
+        if (volumeSeriesRef.current && rawCandleData.length > 0) {
+          const reversedRaw = [...rawCandleData].reverse();
           const volumeData = chartData.map((d, index) => {
-            const raw = rawData.find(r => 
-              Math.abs(new Date(r.candle_date_time_utc).getTime() / 1000 - d.time as number) < 60
-            );
+            const rawIndex = reversedRaw.length - chartData.length + index;
+            const raw = reversedRaw[rawIndex];
             const volume = raw?.candle_acc_trade_volume || 0;
             const isUp = d.close >= d.open;
             return {
@@ -168,8 +169,9 @@ export default function ChartComponent({ market }: ChartComponentProps) {
               value: volume,
               color: isUp ? 'rgba(210, 79, 69, 0.5)' : 'rgba(18, 97, 196, 0.5)', // 양봉/음봉 색상
             };
-          });
+          }).filter(d => d.value > 0);
           volumeSeriesRef.current.setData(volumeData);
+          volumeSeriesRef.current.applyOptions({ visible: showVolume });
         }
 
         // 데이터 준비

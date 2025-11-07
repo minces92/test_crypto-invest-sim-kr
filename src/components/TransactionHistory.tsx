@@ -22,11 +22,35 @@ export default function TransactionHistory() {
           marketPrice: asset ? asset.avg_buy_price : tx.price // Use avg price as a fallback
         }),
       });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(errorData.error || `HTTP ${response.status}`);
+      }
+
       const data = await response.json();
-      setAnalysis(prev => ({ ...prev, [tx.id]: data.analysis }));
+      
+      if (data.error) {
+        throw new Error(data.error);
+      }
+
+      setAnalysis(prev => ({ ...prev, [tx.id]: data.analysis || '분석 결과를 가져올 수 없습니다.' }));
     } catch (error) {
       console.error("Analysis failed:", error);
-      setAnalysis(prev => ({ ...prev, [tx.id]: "분석에 실패했습니다." }));
+      const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+      
+      // Ollama 관련 에러인 경우 더 친화적인 메시지 표시
+      if (errorMessage.includes('Ollama') || errorMessage.includes('503')) {
+        setAnalysis(prev => ({ 
+          ...prev, 
+          [tx.id]: "⚠️ Ollama 서비스가 실행 중이지 않습니다. Ollama를 시작한 후 다시 시도해주세요." 
+        }));
+      } else {
+        setAnalysis(prev => ({ 
+          ...prev, 
+          [tx.id]: `분석에 실패했습니다: ${errorMessage}` 
+        }));
+      }
     } finally {
       setLoadingAnalysis(null);
     }
@@ -66,16 +90,29 @@ export default function TransactionHistory() {
                     <td>{tx.amount.toFixed(4)}</td>
                     <td>{tx.price.toLocaleString('ko-KR')}</td>
                     <td>{(tx.price * tx.amount).toLocaleString('ko-KR', { maximumFractionDigits: 0 })} 원</td>
-                    <td>
+                    <td style={{ maxWidth: '300px', wordWrap: 'break-word' }}>
                       {analysis[tx.id] ? (
-                        <span className="text-small">{analysis[tx.id]}</span>
+                        <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
+                          <span>{analysis[tx.id]}</span>
+                          <button 
+                            className="btn btn-sm ml-2" 
+                            onClick={() => {
+                              const newAnalysis = { ...analysis };
+                              delete newAnalysis[tx.id];
+                              setAnalysis(newAnalysis);
+                            }}
+                            style={{ fontSize: '10px', padding: '2px 6px' }}
+                          >
+                            다시 분석
+                          </button>
+                        </div>
                       ) : (
                         <button 
                           className="btn btn-sm" 
                           onClick={() => handleAnalyze(tx)}
                           disabled={loadingAnalysis === tx.id}
                         >
-                          {loadingAnalysis === tx.id ? '분석중...' : '분석'}
+                          {loadingAnalysis === tx.id ? '분석중...' : 'AI 분석'}
                         </button>
                       )}
                     </td>

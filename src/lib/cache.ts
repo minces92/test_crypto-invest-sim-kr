@@ -57,6 +57,27 @@ function initializeDatabase(database: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_news_created 
       ON news_cache(created_at);
   `);
+
+  // 거래 분석 캐시 테이블
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS transaction_analysis_cache (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id TEXT NOT NULL UNIQUE,
+      analysis TEXT NOT NULL,
+      market TEXT,
+      transaction_type TEXT,
+      price REAL,
+      amount REAL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_analysis_transaction_id 
+      ON transaction_analysis_cache(transaction_id);
+    
+    CREATE INDEX IF NOT EXISTS idx_analysis_created 
+      ON transaction_analysis_cache(created_at);
+  `);
 }
 
 export interface CandleCacheData {
@@ -276,6 +297,86 @@ export async function getNewsWithCache(
 }
 
 /**
+ * 거래 분석 결과를 캐시에서 가져오거나 저장합니다.
+ * @param transactionId - 거래 ID
+ * @param analysis - 분석 결과 (저장 시에만 필요)
+ * @param transactionData - 거래 데이터 (저장 시에만 필요)
+ * @returns 분석 결과 또는 null
+ */
+export function getOrSaveTransactionAnalysis(
+  transactionId: string,
+  analysis?: string,
+  transactionData?: {
+    market?: string;
+    type?: string;
+    price?: number;
+    amount?: number;
+  }
+): string | null {
+  const database = getDatabase();
+
+  // 조회
+  if (!analysis) {
+    const cached = database
+      .prepare('SELECT analysis FROM transaction_analysis_cache WHERE transaction_id = ?')
+      .get(transactionId) as { analysis: string } | undefined;
+
+    return cached ? cached.analysis : null;
+  }
+
+  // 저장
+  const stmt = database.prepare(`
+    INSERT OR REPLACE INTO transaction_analysis_cache 
+    (transaction_id, analysis, market, transaction_type, price, amount, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+  `);
+
+  stmt.run(
+    transactionId,
+    analysis,
+    transactionData?.market || null,
+    transactionData?.type || null,
+    transactionData?.price || null,
+    transactionData?.amount || null
+  );
+
+  return analysis;
+}
+
+/**
+ * 모든 거래 분석 결과를 가져옵니다.
+ * @returns 거래 ID를 키로 하는 분석 결과 맵
+ */
+export function getAllTransactionAnalyses(): Record<string, string> {
+  const database = getDatabase();
+  const results = database
+    .prepare('SELECT transaction_id, analysis FROM transaction_analysis_cache')
+    .all() as Array<{ transaction_id: string; analysis: string }>;
+
+  const analysisMap: Record<string, string> = {};
+  results.forEach(row => {
+    analysisMap[row.transaction_id] = row.analysis;
+  });
+
+  return analysisMap;
+}
+
+/**
+ * 거래 분석 캐시를 삭제합니다.
+ * @param transactionId - 거래 ID (선택적, 없으면 전체 삭제)
+ */
+export function deleteTransactionAnalysis(transactionId?: string): void {
+  const database = getDatabase();
+  if (transactionId) {
+    database
+      .prepare('DELETE FROM transaction_analysis_cache WHERE transaction_id = ?')
+      .run(transactionId);
+  } else {
+    database.prepare('DELETE FROM transaction_analysis_cache').run();
+  }
+}
+
+/**
  * 오래된 캐시 데이터 정리
  * @param days - 보관할 일수 (기본값: 7)
  */
@@ -290,5 +391,22 @@ export function cleanOldCache(days: number = 7): void {
   database
     .prepare('DELETE FROM news_cache WHERE created_at < ?')
     .run(cutoff.toISOString());
+}
+
+/**
+ * 데이터베이스 초기화 (모든 테이블 삭제 후 재생성)
+ */
+export function resetDatabase(): void {
+  const database = getDatabase();
+  
+  // 모든 테이블 삭제
+  database.exec(`
+    DROP TABLE IF EXISTS candle_cache;
+    DROP TABLE IF EXISTS news_cache;
+    DROP TABLE IF EXISTS transaction_analysis_cache;
+  `);
+  
+  // 테이블 재생성
+  initializeDatabase(database);
 }
 

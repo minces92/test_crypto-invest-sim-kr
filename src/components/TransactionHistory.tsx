@@ -7,19 +7,46 @@ export default function TransactionHistory() {
   const { transactions, assets } = usePortfolio();
   const [analysis, setAnalysis] = useState<{ [txId: string]: string }>({});
   const [analyzingIds, setAnalyzingIds] = useState<Set<string>>(new Set());
-  const analyzedIdsRef = useRef<Set<string>>(new Set());
+  const loadedFromDbRef = useRef<Set<string>>(new Set());
 
-  // 거래가 추가될 때마다 자동으로 AI 분석 시작
+  // 컴포넌트 마운트 시 DB에서 분석 결과 로드
+  useEffect(() => {
+    const loadCachedAnalyses = async () => {
+      try {
+        const response = await fetch('/api/analysis/cache');
+        if (response.ok) {
+          const data = await response.json();
+          if (data.analyses) {
+            setAnalysis(data.analyses);
+            // DB에서 로드한 항목들 표시
+            Object.keys(data.analyses).forEach(txId => {
+              loadedFromDbRef.current.add(txId);
+            });
+          }
+        }
+      } catch (error) {
+        console.error('Failed to load cached analyses:', error);
+      }
+    };
+
+    loadCachedAnalyses();
+  }, []);
+
+  // 거래가 추가될 때마다 자동으로 AI 분석 시작 (DB에 없는 경우만)
   useEffect(() => {
     transactions.forEach(tx => {
-      // 이미 분석했거나 분석 중인 거래는 건너뛰기
-      if (!tx || !tx.id || analyzedIdsRef.current.has(tx.id) || analyzingIds.has(tx.id)) {
+      // 이미 분석 중이거나 DB에서 로드한 거래는 건너뛰기
+      if (!tx || !tx.id || analyzingIds.has(tx.id) || loadedFromDbRef.current.has(tx.id)) {
+        return;
+      }
+
+      // 분석 결과가 이미 있으면 건너뛰기
+      if (analysis[tx.id] && analysis[tx.id] !== '분석중...') {
         return;
       }
 
       // 분석 시작
       setAnalyzingIds(prev => new Set(prev).add(tx.id));
-      analyzedIdsRef.current.add(tx.id);
 
       // 먼저 "분석중..." 표시
       setAnalysis(prev => ({ ...prev, [tx.id]: '분석중...' }));
@@ -53,6 +80,9 @@ export default function TransactionHistory() {
             ...prev, 
             [tx.id]: data.analysis || '분석 결과를 가져올 수 없습니다.' 
           }));
+          
+          // DB에서 로드한 것으로 표시
+          loadedFromDbRef.current.add(tx.id);
         } catch (error) {
           console.error("Analysis failed:", error);
           const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
@@ -78,14 +108,14 @@ export default function TransactionHistory() {
         }
       })();
     });
-  }, [transactions, assets, analyzingIds]);
+  }, [transactions, assets, analyzingIds, analysis]);
 
   // 수동으로 다시 분석하는 함수
   const handleReanalyze = async (tx: any) => {
     if (!tx || !tx.id) return;
     
-    // 분석 상태 초기화
-    analyzedIdsRef.current.delete(tx.id);
+    // 분석 상태 초기화 (DB 캐시도 무시)
+    loadedFromDbRef.current.delete(tx.id);
     setAnalyzingIds(prev => new Set(prev).add(tx.id));
     setAnalysis(prev => ({ ...prev, [tx.id]: '분석중...' }));
 

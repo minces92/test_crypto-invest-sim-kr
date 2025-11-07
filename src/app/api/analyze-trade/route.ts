@@ -1,16 +1,24 @@
 import { NextResponse } from 'next/server';
 import { createAIClient } from '@/lib/ai-client';
+import { getOrSaveTransactionAnalysis } from '@/lib/cache';
 
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const { transaction, marketPrice } = body;
 
-    if (!transaction || !transaction.market || !transaction.price) {
+    if (!transaction || !transaction.market || !transaction.price || !transaction.id) {
       return NextResponse.json(
         { error: 'Invalid transaction data' },
         { status: 400 }
       );
+    }
+
+    // DB에서 기존 분석 결과 확인
+    const cachedAnalysis = getOrSaveTransactionAnalysis(transaction.id);
+    if (cachedAnalysis) {
+      console.log(`Using cached analysis for transaction ${transaction.id}`);
+      return NextResponse.json({ analysis: cachedAnalysis, cached: true });
     }
 
     // AI 클라이언트 생성
@@ -71,7 +79,15 @@ ${marketPrice ? `- 가격 차이: ${priceDiff > 0 ? '+' : ''}${priceDiffPercent}
       // 응답 정리 (불필요한 공백 제거)
       const analysis = aiResponse.trim().replace(/\n+/g, ' ').substring(0, 300);
 
-      return NextResponse.json({ analysis });
+      // DB에 분석 결과 저장
+      getOrSaveTransactionAnalysis(transaction.id, analysis, {
+        market: transaction.market,
+        type: transaction.type,
+        price: transaction.price,
+        amount: transaction.amount,
+      });
+
+      return NextResponse.json({ analysis, cached: false });
     } catch (aiError) {
       console.error('AI analysis error:', aiError);
       
@@ -82,7 +98,15 @@ ${marketPrice ? `- 가격 차이: ${priceDiff > 0 ? '+' : ''}${priceDiffPercent}
           : '시장 가격 정보가 없어 정확한 평가가 어렵습니다.'
       } 추가적인 분석을 위해서는 시장 동향과 기술적 지표를 함께 고려하는 것이 좋습니다.`;
       
-      return NextResponse.json({ analysis: fallbackAnalysis });
+      // 폴백 분석도 DB에 저장
+      getOrSaveTransactionAnalysis(transaction.id, fallbackAnalysis, {
+        market: transaction.market,
+        type: transaction.type,
+        price: transaction.price,
+        amount: transaction.amount,
+      });
+      
+      return NextResponse.json({ analysis: fallbackAnalysis, cached: false });
     }
   } catch (error) {
     console.error('Error in analyze-trade API:', error);

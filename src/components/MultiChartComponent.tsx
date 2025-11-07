@@ -36,9 +36,19 @@ export default function MultiChartComponent({
 
   const [loading, setLoading] = useState(true);
   const [selectedMarkets, setSelectedMarkets] = useState<string[]>(markets.slice(0, 5)); // 최대 5개
+  const [currentComparisonMode, setCurrentComparisonMode] = useState<'absolute' | 'percentage'>(comparisonMode || 'percentage');
 
   useEffect(() => {
-    if (!chartContainerRef.current || selectedMarkets.length === 0) return;
+    if (!chartContainerRef.current) {
+      console.warn('MultiChartComponent: container not mounted yet');
+      return;
+    }
+    
+    if (selectedMarkets.length === 0) {
+      console.warn('MultiChartComponent: no markets selected');
+      setLoading(false);
+      return;
+    }
 
     const fetchAndRenderChart = async () => {
       setLoading(true);
@@ -72,26 +82,62 @@ export default function MultiChartComponent({
         // 각 마켓 데이터 가져오기
         const marketDataPromises = selectedMarkets.map(async (market, index) => {
           try {
+            console.log(`Fetching data for ${market}...`);
             const response = await fetch(`/api/candles?market=${market}&count=90`);
             if (!response.ok) {
-              console.error(`Failed to fetch ${market}: ${response.status}`);
+              const errorText = await response.text();
+              console.error(`Failed to fetch ${market}:`, {
+                status: response.status,
+                statusText: response.statusText,
+                body: errorText
+              });
               return null;
             }
             const rawData: CandleData[] = await response.json();
+            
+            console.log(`Data received for ${market}:`, {
+              count: rawData?.length,
+              firstItem: rawData?.[0],
+              lastItem: rawData?.[rawData.length - 1]
+            });
             
             if (!rawData || rawData.length === 0) {
               console.error(`No data for ${market}`);
               return null;
             }
 
-            const chartData: ChartDataPoint[] = rawData
-              .reverse()
-              .map((d, i) => {
+            // 데이터 유효성 검사
+            const validData = rawData.filter(d => 
+              d.candle_date_time_utc && 
+              d.trade_price != null &&
+              !isNaN(d.trade_price)
+            );
+
+            if (validData.length === 0) {
+              console.error(`No valid data for ${market}`);
+              return null;
+            }
+
+            // 시간순으로 정렬 (오래된 것부터)
+            const sortedData = [...validData].sort((a, b) => 
+              new Date(a.candle_date_time_utc).getTime() - new Date(b.candle_date_time_utc).getTime()
+            );
+
+            // 첫 번째 가격 (가장 오래된 가격)을 기준으로 계산
+            const firstPrice = sortedData[0].trade_price;
+
+            const chartData: ChartDataPoint[] = sortedData
+              .map((d) => {
+                const timestamp = new Date(d.candle_date_time_utc).getTime();
+                if (isNaN(timestamp)) {
+                  console.warn(`Invalid timestamp for ${market}:`, d.candle_date_time_utc);
+                  return null;
+                }
+
                 let value: number;
                 
-                if (comparisonMode === 'percentage') {
+                if (currentComparisonMode === 'percentage') {
                   // 첫 번째 가격을 기준으로 상대변화율 계산
-                  const firstPrice = rawData[rawData.length - 1].trade_price;
                   value = ((d.trade_price - firstPrice) / firstPrice) * 100;
                 } else {
                   // 절대값
@@ -99,10 +145,22 @@ export default function MultiChartComponent({
                 }
                 
                 return {
-                  time: (new Date(d.candle_date_time_utc).getTime() / 1000) as UTCTimestamp,
+                  time: (timestamp / 1000) as UTCTimestamp,
                   value,
                 };
-              });
+              })
+              .filter((d): d is ChartDataPoint => d !== null);
+
+            if (chartData.length === 0) {
+              console.error(`No valid chart data for ${market}`);
+              return null;
+            }
+
+            console.log(`Chart data prepared for ${market}:`, {
+              count: chartData.length,
+              firstPoint: chartData[0],
+              lastPoint: chartData[chartData.length - 1]
+            });
 
             return { market, data: chartData, color: MARKET_COLORS[index % MARKET_COLORS.length] };
           } catch (error) {
@@ -114,21 +172,101 @@ export default function MultiChartComponent({
         const marketDataResults = await Promise.all(marketDataPromises);
         const validMarketData = marketDataResults.filter((d): d is NonNullable<typeof d> => d !== null);
 
-        // 각 마켓에 대해 시리즈 추가
-        validMarketData.forEach(({ market, data, color }) => {
-          const series = chartRef.current!.addLineSeries({
-            title: market.replace('KRW-', ''),
-            color,
-            lineWidth: 2,
-          });
-          series.setData(data);
-          seriesRefs.current.set(market, series);
+        console.log('Valid market data:', {
+          count: validMarketData.length,
+          markets: validMarketData.map(m => m.market)
         });
 
-        chartRef.current.timeScale().fitContent();
+        if (validMarketData.length === 0) {
+          console.error('No valid market data to display');
+          if (chartContainerRef.current) {
+            chartContainerRef.current.innerHTML = `
+              <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #f85149; padding: 20px;">
+                <div style="text-align: center;">
+                  <p style="font-size: 16px; margin-bottom: 10px;">차트 데이터를 불러오지 못했습니다.</p>
+                  <p style="font-size: 12px; color: #8b949e;">선택한 코인의 데이터를 가져올 수 없습니다.</p>
+                </div>
+              </div>
+            `;
+          }
+          return;
+        }
+
+        // 각 마켓에 대해 시리즈 추가
+        validMarketData.forEach(({ market, data, color }) => {
+          try {
+            if (!chartRef.current) {
+              console.error('Chart not initialized');
+              return;
+            }
+            
+            const series = chartRef.current.addLineSeries({
+              title: market.replace('KRW-', ''),
+              color,
+              lineWidth: 2,
+            });
+            
+            console.log(`Setting data for ${market}:`, {
+              dataCount: data.length,
+              firstValue: data[0]?.value,
+              lastValue: data[data.length - 1]?.value
+            });
+            
+            series.setData(data);
+            seriesRefs.current.set(market, series);
+          } catch (error) {
+            console.error(`Error adding series for ${market}:`, error);
+          }
+        });
+
+        if (chartRef.current) {
+          chartRef.current.timeScale().fitContent();
+          
+          // 차트 크기 업데이트
+          if (chartContainerRef.current) {
+            const width = chartContainerRef.current.clientWidth;
+            chartRef.current.applyOptions({ width });
+          }
+        }
 
       } catch (error) {
         console.error('Failed to fetch or render multi-chart data:', error);
+        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+        console.error('Error details:', {
+          error,
+          selectedMarkets,
+          comparisonMode,
+          message: errorMessage,
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        
+        // 기존 차트 정리
+        if (chartRef.current) {
+          try {
+            chartRef.current.remove();
+            chartRef.current = null;
+          } catch (cleanupError) {
+            console.error('Error cleaning up chart:', cleanupError);
+          }
+        }
+        seriesRefs.current.clear();
+        
+        if (chartContainerRef.current) {
+          chartContainerRef.current.innerHTML = `
+            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #f85149; padding: 20px;">
+              <div style="text-align: center;">
+                <p style="font-size: 16px; margin-bottom: 10px;">차트 데이터를 불러오지 못했습니다.</p>
+                <p style="font-size: 12px; color: #8b949e; margin-bottom: 5px;">${errorMessage}</p>
+                <button 
+                  onclick="window.location.reload()" 
+                  style="margin-top: 10px; padding: 8px 16px; background: #238636; color: white; border: none; border-radius: 4px; cursor: pointer;"
+                >
+                  새로고침
+                </button>
+              </div>
+            </div>
+          `;
+        }
       } finally {
         setLoading(false);
       }
@@ -148,7 +286,7 @@ export default function MultiChartComponent({
     return () => {
       window.removeEventListener('resize', handleResize);
     };
-  }, [selectedMarkets, comparisonMode]);
+  }, [selectedMarkets, currentComparisonMode]);
 
   // Cleanup
   useEffect(() => {
@@ -185,23 +323,21 @@ export default function MultiChartComponent({
       <div style={{ marginBottom: '10px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'center' }}>
           <label style={{ fontSize: '12px', fontWeight: 'bold' }}>비교 모드:</label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer' }}>
             <input
               type="radio"
               name="comparisonMode"
-              checked={comparisonMode === 'percentage'}
-              onChange={() => {}}
-              disabled
+              checked={currentComparisonMode === 'percentage'}
+              onChange={() => setCurrentComparisonMode('percentage')}
             />
             상대변화율 (%)
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px', cursor: 'pointer' }}>
             <input
               type="radio"
               name="comparisonMode"
-              checked={comparisonMode === 'absolute'}
-              onChange={() => {}}
-              disabled
+              checked={currentComparisonMode === 'absolute'}
+              onChange={() => setCurrentComparisonMode('absolute')}
             />
             절대값
           </label>

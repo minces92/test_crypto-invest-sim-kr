@@ -1,7 +1,16 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { createChart, IChartApi, ISeriesApi, UTCTimestamp } from 'lightweight-charts';
+import { useEffect, useState } from 'react';
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer
+} from 'recharts';
 
 interface CandleData {
   candle_date_time_utc: string;
@@ -12,13 +21,13 @@ interface CandleData {
 }
 
 interface ChartDataPoint {
-  time: UTCTimestamp;
-  value: number;
+  time: string;
+  [key: string]: string | number;
 }
 
 interface MultiChartComponentProps {
   markets: string[];
-  comparisonMode?: 'absolute' | 'percentage'; // 절대값 vs 상대변화율
+  comparisonMode?: 'absolute' | 'percentage';
 }
 
 const MARKET_COLORS = [
@@ -30,67 +39,29 @@ export default function MultiChartComponent({
   markets, 
   comparisonMode = 'percentage' 
 }: MultiChartComponentProps) {
-  const chartContainerRef = useRef<HTMLDivElement>(null);
-  const chartRef = useRef<IChartApi | null>(null);
-  const seriesRefs = useRef<Map<string, ISeriesApi<'Line'>>>(new Map());
-
   const [loading, setLoading] = useState(true);
-  const [selectedMarkets, setSelectedMarkets] = useState<string[]>(markets.slice(0, 5)); // 최대 5개
+  const [selectedMarkets, setSelectedMarkets] = useState<string[]>(markets.slice(0, 5));
   const [currentComparisonMode, setCurrentComparisonMode] = useState<'absolute' | 'percentage'>(comparisonMode || 'percentage');
+  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!chartContainerRef.current) {
-      console.warn('MultiChartComponent: container not mounted yet');
-      return;
-    }
-    
     if (selectedMarkets.length === 0) {
-      console.warn('MultiChartComponent: no markets selected');
       setLoading(false);
       return;
     }
 
     const fetchAndRenderChart = async () => {
       setLoading(true);
+      setError(null);
       try {
-        // 차트 초기화
-        if (!chartRef.current) {
-          chartRef.current = createChart(chartContainerRef.current!, {
-            width: chartContainerRef.current!.clientWidth,
-            height: 400,
-            layout: {
-              background: { color: '#ffffff' },
-              textColor: '#333',
-            },
-            grid: {
-              vertLines: { color: '#f0f0f0' },
-              horzLines: { color: '#f0f0f0' },
-            },
-            timeScale: {
-              timeVisible: true,
-              secondsVisible: false,
-            },
-          });
-        }
-
-        // 기존 시리즈 제거
-        seriesRefs.current.forEach(series => {
-          chartRef.current?.removeSeries(series);
-        });
-        seriesRefs.current.clear();
-
         // 각 마켓 데이터 가져오기
         const marketDataPromises = selectedMarkets.map(async (market, index) => {
           try {
             console.log(`Fetching data for ${market}...`);
             const response = await fetch(`/api/candles?market=${market}&count=90`);
             if (!response.ok) {
-              const errorText = await response.text();
-              console.error(`Failed to fetch ${market}:`, {
-                status: response.status,
-                statusText: response.statusText,
-                body: errorText
-              });
+              console.error(`Failed to fetch ${market}: ${response.status}`);
               return null;
             }
             const rawData: CandleData[] = await response.json();
@@ -126,30 +97,20 @@ export default function MultiChartComponent({
             // 첫 번째 가격 (가장 오래된 가격)을 기준으로 계산
             const firstPrice = sortedData[0].trade_price;
 
-            const chartData: ChartDataPoint[] = sortedData
-              .map((d) => {
-                const timestamp = new Date(d.candle_date_time_utc).getTime();
-                if (isNaN(timestamp)) {
-                  console.warn(`Invalid timestamp for ${market}:`, d.candle_date_time_utc);
-                  return null;
-                }
+            const chartData: Array<{ time: string; value: number }> = sortedData.map((d) => {
+              const timestamp = new Date(d.candle_date_time_utc);
+              const timeStr = timestamp.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
 
-                let value: number;
-                
-                if (currentComparisonMode === 'percentage') {
-                  // 첫 번째 가격을 기준으로 상대변화율 계산
-                  value = ((d.trade_price - firstPrice) / firstPrice) * 100;
-                } else {
-                  // 절대값
-                  value = d.trade_price;
-                }
-                
-                return {
-                  time: (timestamp / 1000) as UTCTimestamp,
-                  value,
-                };
-              })
-              .filter((d): d is ChartDataPoint => d !== null);
+              let value: number;
+              
+              if (currentComparisonMode === 'percentage') {
+                value = ((d.trade_price - firstPrice) / firstPrice) * 100;
+              } else {
+                value = d.trade_price;
+              }
+              
+              return { time: timeStr, value };
+            });
 
             if (chartData.length === 0) {
               console.error(`No valid chart data for ${market}`);
@@ -178,126 +139,45 @@ export default function MultiChartComponent({
         });
 
         if (validMarketData.length === 0) {
-          console.error('No valid market data to display');
-          if (chartContainerRef.current) {
-            chartContainerRef.current.innerHTML = `
-              <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #f85149; padding: 20px;">
-                <div style="text-align: center;">
-                  <p style="font-size: 16px; margin-bottom: 10px;">차트 데이터를 불러오지 못했습니다.</p>
-                  <p style="font-size: 12px; color: #8b949e;">선택한 코인의 데이터를 가져올 수 없습니다.</p>
-                </div>
-              </div>
-            `;
-          }
+          setError('선택한 코인의 데이터를 가져올 수 없습니다.');
+          setChartData([]);
           return;
         }
 
-        // 각 마켓에 대해 시리즈 추가
-        validMarketData.forEach(({ market, data, color }) => {
-          try {
-            if (!chartRef.current) {
-              console.error('Chart not initialized');
-              return;
-            }
-            
-            const series = chartRef.current.addLineSeries({
-              title: market.replace('KRW-', ''),
-              color,
-              lineWidth: 2,
-            });
-            
-            console.log(`Setting data for ${market}:`, {
-              dataCount: data.length,
-              firstValue: data[0]?.value,
-              lastValue: data[data.length - 1]?.value
-            });
-            
-            series.setData(data);
-            seriesRefs.current.set(market, series);
-          } catch (error) {
-            console.error(`Error adding series for ${market}:`, error);
-          }
+        // 모든 마켓의 시간을 기준으로 데이터 병합
+        const allTimes = new Set<string>();
+        validMarketData.forEach(({ data }) => {
+          data.forEach(d => allTimes.add(d.time));
         });
 
-        if (chartRef.current) {
-          chartRef.current.timeScale().fitContent();
-          
-          // 차트 크기 업데이트
-          if (chartContainerRef.current) {
-            const width = chartContainerRef.current.clientWidth;
-            chartRef.current.applyOptions({ width });
-          }
-        }
+        const sortedTimes = Array.from(allTimes).sort((a, b) => {
+          const dateA = new Date(a);
+          const dateB = new Date(b);
+          return dateA.getTime() - dateB.getTime();
+        });
 
+        // 각 시간에 대해 모든 마켓의 값을 포함하는 데이터 포인트 생성
+        const mergedData: ChartDataPoint[] = sortedTimes.map(time => {
+          const point: ChartDataPoint = { time };
+          validMarketData.forEach(({ market, data }) => {
+            const marketDataPoint = data.find(d => d.time === time);
+            const marketKey = market.replace('KRW-', '');
+            point[marketKey] = marketDataPoint ? marketDataPoint.value : null as any;
+          });
+          return point;
+        });
+
+        setChartData(mergedData);
       } catch (error) {
         console.error('Failed to fetch or render multi-chart data:', error);
-        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-        console.error('Error details:', {
-          error,
-          selectedMarkets,
-          comparisonMode,
-          message: errorMessage,
-          stack: error instanceof Error ? error.stack : undefined
-        });
-        
-        // 기존 차트 정리
-        if (chartRef.current) {
-          try {
-            chartRef.current.remove();
-            chartRef.current = null;
-          } catch (cleanupError) {
-            console.error('Error cleaning up chart:', cleanupError);
-          }
-        }
-        seriesRefs.current.clear();
-        
-        if (chartContainerRef.current) {
-          chartContainerRef.current.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #f85149; padding: 20px;">
-              <div style="text-align: center;">
-                <p style="font-size: 16px; margin-bottom: 10px;">차트 데이터를 불러오지 못했습니다.</p>
-                <p style="font-size: 12px; color: #8b949e; margin-bottom: 5px;">${errorMessage}</p>
-                <button 
-                  onclick="window.location.reload()" 
-                  style="margin-top: 10px; padding: 8px 16px; background: #238636; color: white; border: none; border-radius: 4px; cursor: pointer;"
-                >
-                  새로고침
-                </button>
-              </div>
-            </div>
-          `;
-        }
+        setError(error instanceof Error ? error.message : '차트 데이터를 불러오지 못했습니다.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchAndRenderChart();
-
-    // Resize observer
-    const handleResize = () => {
-      if (chartContainerRef.current && chartRef.current) {
-        chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-    };
   }, [selectedMarkets, currentComparisonMode]);
-
-  // Cleanup
-  useEffect(() => {
-    return () => {
-      if (chartRef.current) {
-        chartRef.current.remove();
-        chartRef.current = null;
-      }
-      seriesRefs.current.clear();
-    };
-  }, []);
 
   const availableMarkets = [
     'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA', 
@@ -317,6 +197,26 @@ export default function MultiChartComponent({
       }
     });
   };
+
+  if (loading) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px' }}>
+        차트 로딩 중...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px', color: '#f85149' }}>
+        <div style={{ textAlign: 'center' }}>
+          <p>{error}</p>
+        </div>
+      </div>
+    );
+  }
+
+  const selectedMarketKeys = selectedMarkets.map(m => m.replace('KRW-', ''));
 
   return (
     <div style={{ width: '100%', position: 'relative' }}>
@@ -371,25 +271,54 @@ export default function MultiChartComponent({
           ))}
         </div>
       </div>
-
-      {loading && (
-        <div style={{ 
-          position: 'absolute', 
-          top: '50%', 
-          left: '50%', 
-          transform: 'translate(-50%, -50%)', 
-          zIndex: 10,
-          backgroundColor: 'rgba(255, 255, 255, 0.9)',
-          padding: '20px',
-          borderRadius: '8px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-        }}>
-          차트 로딩 중...
-        </div>
-      )}
       
-      <div ref={chartContainerRef} style={{ width: '100%', height: '400px', minHeight: '400px' }} />
+      <ResponsiveContainer width="100%" height={400}>
+        <LineChart data={chartData} margin={{ top: 20, right: 30, left: 20, bottom: 20 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+          <XAxis 
+            dataKey="time" 
+            tick={{ fontSize: 12 }}
+            angle={-45}
+            textAnchor="end"
+            height={60}
+          />
+          <YAxis 
+            tick={{ fontSize: 12 }}
+            label={{ 
+              value: currentComparisonMode === 'percentage' ? '변화율 (%)' : '가격 (KRW)', 
+              angle: -90, 
+              position: 'insideLeft' 
+            }}
+          />
+          <Tooltip 
+            formatter={(value: any, name: string) => {
+              if (typeof value === 'number') {
+                const formatted = currentComparisonMode === 'percentage' 
+                  ? `${value.toFixed(2)}%` 
+                  : value.toLocaleString('ko-KR');
+                return [formatted, name];
+              }
+              return [value, name];
+            }}
+            labelFormatter={(label) => `날짜: ${label}`}
+          />
+          <Legend />
+          {selectedMarkets.map((market, index) => {
+            const marketKey = market.replace('KRW-', '');
+            return (
+              <Line
+                key={market}
+                type="monotone"
+                dataKey={marketKey}
+                stroke={MARKET_COLORS[index % MARKET_COLORS.length]}
+                strokeWidth={2}
+                dot={false}
+                name={marketKey}
+              />
+            );
+          })}
+        </LineChart>
+      </ResponsiveContainer>
     </div>
   );
 }
-

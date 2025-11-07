@@ -65,16 +65,40 @@ export default function ChartComponent({ market }: ChartComponentProps) {
   const [showVolume, setShowVolume] = useState(true);
 
   useEffect(() => {
-    if (!market) return;
+    if (!market) {
+      console.warn('ChartComponent: market prop is missing');
+      setLoading(false);
+      return;
+    }
+
+    // 차트 컨테이너가 마운트될 때까지 대기
+    if (!chartContainerRef.current) {
+      console.warn('ChartComponent: container not mounted yet');
+      setLoading(false);
+      return;
+    }
 
     const fetchChartData = async () => {
       setLoading(true);
       try {
         const response = await fetch(`/api/candles?market=${market}&count=90`);
         if (!response.ok) {
-          throw new Error(`API error: ${response.status}`);
+          const errorText = await response.text();
+          console.error('API response error:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText
+          });
+          throw new Error(`API error: ${response.status} - ${response.statusText}`);
         }
         const rawData: CandleData[] = await response.json();
+        
+        console.log('Chart data received:', {
+          market,
+          count: rawData.length,
+          firstItem: rawData[0],
+          lastItem: rawData[rawData.length - 1]
+        });
         
         if (!rawData || rawData.length === 0) {
           console.error('No chart data received');
@@ -82,14 +106,37 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           return;
         }
 
-        const chartData: ChartDataPoint[] = rawData
-          .map(d => ({
-            time: (new Date(d.candle_date_time_utc).getTime() / 1000) as UTCTimestamp,
-            open: d.opening_price,
-            high: d.high_price,
-            low: d.low_price,
-            close: d.trade_price,
-          }))
+        // 데이터 유효성 검사
+        const validData = rawData.filter(d => 
+          d.candle_date_time_utc && 
+          d.opening_price != null && 
+          d.high_price != null && 
+          d.low_price != null && 
+          d.trade_price != null
+        );
+
+        if (validData.length === 0) {
+          console.error('No valid chart data after filtering');
+          setLoading(false);
+          return;
+        }
+
+        const chartData: ChartDataPoint[] = validData
+          .map(d => {
+            const timestamp = new Date(d.candle_date_time_utc).getTime();
+            if (isNaN(timestamp)) {
+              console.warn('Invalid timestamp:', d.candle_date_time_utc);
+              return null;
+            }
+            return {
+              time: (timestamp / 1000) as UTCTimestamp,
+              open: d.opening_price,
+              high: d.high_price,
+              low: d.low_price,
+              close: d.trade_price,
+            };
+          })
+          .filter((d): d is ChartDataPoint => d !== null)
           .reverse(); // 시간순으로 정렬
 
         if (!chartContainerRef.current) {
@@ -174,6 +221,10 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           });
         }
 
+        // 데이터 준비 (먼저 정의)
+        const rawCandleData: CandleData[] = [...rawData].reverse(); // 원본 데이터 보존
+        const candleDataForCalc = chartData.map(d => ({ trade_price: d.close }));
+
         // 캔들 데이터 설정
         if (candlestickSeriesRef.current) {
           candlestickSeriesRef.current.setData(chartData);
@@ -183,10 +234,13 @@ export default function ChartComponent({ market }: ChartComponentProps) {
 
         // 거래량 데이터 추가
         if (volumeSeriesRef.current && rawCandleData.length > 0) {
-          const reversedRaw = [...rawCandleData].reverse();
-          const volumeData = chartData.map((d, index) => {
-            const rawIndex = reversedRaw.length - chartData.length + index;
-            const raw = reversedRaw[rawIndex];
+          // chartData와 rawCandleData를 시간으로 매칭
+          const volumeData = chartData.map((d) => {
+            // 시간으로 매칭하여 거래량 찾기
+            const raw = rawCandleData.find(r => {
+              const rawTime = (new Date(r.candle_date_time_utc).getTime() / 1000) as UTCTimestamp;
+              return rawTime === d.time;
+            });
             const volume = raw?.candle_acc_trade_volume || 0;
             const isUp = d.close >= d.open;
             return {
@@ -194,17 +248,13 @@ export default function ChartComponent({ market }: ChartComponentProps) {
               value: volume,
               color: isUp ? 'rgba(210, 79, 69, 0.5)' : 'rgba(18, 97, 196, 0.5)', // 양봉/음봉 색상
             };
-          }).filter(d => d.value > 0);
+          });
           
           if (volumeData.length > 0) {
             volumeSeriesRef.current.setData(volumeData);
             volumeSeriesRef.current.applyOptions({ visible: showVolume });
           }
         }
-
-        // 데이터 준비
-        const candleDataForCalc = chartData.map(d => ({ trade_price: d.close }));
-        const rawCandleData: CandleData[] = rawData.reverse();
 
         // SMA 계산 및 설정
         if (indicators.sma) {
@@ -389,16 +439,50 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           }
         }
 
-        chartRef.current.timeScale().fitContent();
+        // 차트 크기 조정 및 시간축 맞추기
+        if (chartRef.current) {
+          chartRef.current.timeScale().fitContent();
+          
+          // 차트 크기 업데이트
+          if (chartContainerRef.current) {
+            const width = chartContainerRef.current.clientWidth;
+            chartRef.current.applyOptions({ width });
+          }
+        }
 
       } catch (error) {
         console.error('Failed to fetch or render chart data:', error);
+        const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
+        console.error('Error details:', {
+          error,
+          market,
+          message: errorMessage,
+          stack: error instanceof Error ? error.stack : undefined
+        });
+        
+        // 기존 차트 정리
+        if (chartRef.current) {
+          try {
+            chartRef.current.remove();
+            chartRef.current = null;
+            candlestickSeriesRef.current = null;
+          } catch (cleanupError) {
+            console.error('Error cleaning up chart:', cleanupError);
+          }
+        }
+        
         if (chartContainerRef.current) {
           chartContainerRef.current.innerHTML = `
-            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #f85149;">
+            <div style="display: flex; align-items: center; justify-content: center; height: 100%; color: #f85149; padding: 20px;">
               <div style="text-align: center;">
-                <p>차트 데이터를 불러오지 못했습니다.</p>
-                <p style="font-size: 12px; color: #8b949e;">${error instanceof Error ? error.message : '알 수 없는 오류'}</p>
+                <p style="font-size: 16px; margin-bottom: 10px;">차트 데이터를 불러오지 못했습니다.</p>
+                <p style="font-size: 12px; color: #8b949e; margin-bottom: 5px;">${errorMessage}</p>
+                <button 
+                  onclick="window.location.reload()" 
+                  style="margin-top: 10px; padding: 8px 16px; background: #238636; color: white; border: none; border-radius: 4px; cursor: pointer;"
+                >
+                  새로고침
+                </button>
               </div>
             </div>
           `;

@@ -16,6 +16,7 @@ try {
       DROP TABLE IF EXISTS candle_cache;
       DROP TABLE IF EXISTS news_cache;
       DROP TABLE IF EXISTS transaction_analysis_cache;
+      DROP TABLE IF EXISTS transactions;
     `);
     
     console.log('All tables dropped.');
@@ -75,6 +76,26 @@ try {
       
       CREATE INDEX IF NOT EXISTS idx_analysis_created 
         ON transaction_analysis_cache(created_at);
+
+      CREATE TABLE IF NOT EXISTS transactions (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        market TEXT NOT NULL,
+        price REAL NOT NULL,
+        amount REAL NOT NULL,
+        timestamp TEXT NOT NULL,
+        source TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_transactions_timestamp 
+        ON transactions(timestamp DESC);
+      
+      CREATE INDEX IF NOT EXISTS idx_transactions_market 
+        ON transactions(market);
+      
+      CREATE INDEX IF NOT EXISTS idx_transactions_type 
+        ON transactions(type);
     `);
     
     console.log('Database reset completed successfully!');
@@ -138,6 +159,26 @@ try {
       
       CREATE INDEX IF NOT EXISTS idx_analysis_created 
         ON transaction_analysis_cache(created_at);
+
+      CREATE TABLE IF NOT EXISTS transactions (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        market TEXT NOT NULL,
+        price REAL NOT NULL,
+        amount REAL NOT NULL,
+        timestamp TEXT NOT NULL,
+        source TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_transactions_timestamp 
+        ON transactions(timestamp DESC);
+      
+      CREATE INDEX IF NOT EXISTS idx_transactions_market 
+        ON transactions(market);
+      
+      CREATE INDEX IF NOT EXISTS idx_transactions_type 
+        ON transactions(type);
     `);
     
     console.log('New database created successfully!');

@@ -78,6 +78,29 @@ function initializeDatabase(database: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_analysis_created 
       ON transaction_analysis_cache(created_at);
   `);
+
+  // 거래 내역 테이블
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS transactions (
+      id TEXT PRIMARY KEY,
+      type TEXT NOT NULL,
+      market TEXT NOT NULL,
+      price REAL NOT NULL,
+      amount REAL NOT NULL,
+      timestamp TEXT NOT NULL,
+      source TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_transactions_timestamp 
+      ON transactions(timestamp DESC);
+    
+    CREATE INDEX IF NOT EXISTS idx_transactions_market 
+      ON transactions(market);
+    
+    CREATE INDEX IF NOT EXISTS idx_transactions_type 
+      ON transactions(type);
+  `);
 }
 
 export interface CandleCacheData {
@@ -394,6 +417,89 @@ export function cleanOldCache(days: number = 7): void {
 }
 
 /**
+ * 거래 내역을 가져옵니다.
+ * @returns 거래 내역 배열 (최신순)
+ */
+export function getTransactions(): Array<{
+  id: string;
+  type: 'buy' | 'sell';
+  market: string;
+  price: number;
+  amount: number;
+  timestamp: string;
+  source?: string;
+}> {
+  const database = getDatabase();
+  const results = database
+    .prepare('SELECT * FROM transactions ORDER BY timestamp DESC')
+    .all() as Array<{
+    id: string;
+    type: string;
+    market: string;
+    price: number;
+    amount: number;
+    timestamp: string;
+    source: string | null;
+  }>;
+
+  return results.map(row => ({
+    id: row.id,
+    type: row.type as 'buy' | 'sell',
+    market: row.market,
+    price: row.price,
+    amount: row.amount,
+    timestamp: row.timestamp,
+    source: row.source || undefined,
+  }));
+}
+
+/**
+ * 거래 내역을 저장합니다.
+ * @param transaction - 거래 내역 객체
+ */
+export function saveTransaction(transaction: {
+  id: string;
+  type: 'buy' | 'sell';
+  market: string;
+  price: number;
+  amount: number;
+  timestamp: string;
+  source?: string;
+}): void {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    INSERT OR REPLACE INTO transactions 
+    (id, type, market, price, amount, timestamp, source)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  stmt.run(
+    transaction.id,
+    transaction.type,
+    transaction.market,
+    transaction.price,
+    transaction.amount,
+    transaction.timestamp,
+    transaction.source || null
+  );
+}
+
+/**
+ * 거래 내역을 삭제합니다.
+ * @param transactionId - 거래 ID (선택적, 없으면 전체 삭제)
+ */
+export function deleteTransaction(transactionId?: string): void {
+  const database = getDatabase();
+  if (transactionId) {
+    database
+      .prepare('DELETE FROM transactions WHERE id = ?')
+      .run(transactionId);
+  } else {
+    database.prepare('DELETE FROM transactions').run();
+  }
+}
+
+/**
  * 데이터베이스 초기화 (모든 테이블 삭제 후 재생성)
  */
 export function resetDatabase(): void {
@@ -404,6 +510,7 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS candle_cache;
     DROP TABLE IF EXISTS news_cache;
     DROP TABLE IF EXISTS transaction_analysis_cache;
+    DROP TABLE IF EXISTS transactions;
   `);
   
   // 테이블 재생성

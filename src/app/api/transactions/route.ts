@@ -49,13 +49,37 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const newTransaction = await request.json();
+    // 요청 본문 읽기
+    const body = await request.text();
+    
+    // 빈 본문 체크
+    if (!body || body.trim() === '') {
+      console.error('Empty request body');
+      return NextResponse.json({ error: 'Request body is empty' }, { status: 400 });
+    }
+
+    // JSON 파싱 시도
+    let newTransaction;
+    try {
+      newTransaction = JSON.parse(body);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Request body:', body);
+      return NextResponse.json({ error: 'Invalid JSON format' }, { status: 400 });
+    }
+
+    // 필수 필드 검증
+    if (!newTransaction || typeof newTransaction !== 'object') {
+      return NextResponse.json({ error: 'Invalid transaction data' }, { status: 400 });
+    }
+
     const transactions = await getTransactions();
     transactions.unshift(newTransaction); // Add to the beginning of the array
     await fs.writeFile(transactionsFilePath, JSON.stringify(transactions, null, 2));
     return NextResponse.json(newTransaction, { status: 201 });
   } catch (error) {
     console.error('Error writing transaction:', error);
-    return NextResponse.json({ error: 'Failed to write transaction' }, { status: 500 });
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json({ error: 'Failed to write transaction', details: errorMessage }, { status: 500 });
   }
 }

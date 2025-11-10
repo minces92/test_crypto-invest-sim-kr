@@ -188,6 +188,8 @@ export default function TransactionHistory() {
                 <th>수량</th>
                 <th>가격</th>
                 <th>총액</th>
+                <th>구분</th>
+                <th>전략</th>
                 <th>AI 분석</th>
               </tr>
             </thead>
@@ -203,6 +205,41 @@ export default function TransactionHistory() {
                     <td>{tx.amount.toFixed(4)}</td>
                     <td>{tx.price.toLocaleString('ko-KR')}</td>
                     <td>{(tx.price * tx.amount).toLocaleString('ko-KR', { maximumFractionDigits: 0 })} 원</td>
+                    <td>
+                      <span 
+                        className={`text-small text-bold ${tx.isAuto ? 'color-fg-success' : 'color-fg-muted'}`}
+                        style={{ 
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          backgroundColor: tx.isAuto ? 'rgba(63, 185, 80, 0.1)' : 'rgba(139, 148, 158, 0.1)'
+                        }}
+                      >
+                        {tx.isAuto ? '자동' : '수동'}
+                      </span>
+                    </td>
+                    <td>
+                      {tx.strategyType && (
+                        <span 
+                          className="text-small"
+                          style={{ 
+                            color: 'var(--color-accent-fg)',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            backgroundColor: 'rgba(88, 166, 255, 0.1)'
+                          }}
+                        >
+                          {tx.strategyType === 'dca' ? 'DCA' :
+                           tx.strategyType === 'ma' ? '이동평균' :
+                           tx.strategyType === 'rsi' ? 'RSI' :
+                           tx.strategyType === 'bband' ? '볼린저밴드' :
+                           tx.strategyType === 'news' ? '뉴스기반' :
+                           tx.strategyType === 'volatility' ? '변동성돌파' :
+                           tx.strategyType === 'momentum' ? '모멘텀' :
+                           tx.strategyType === 'manual' ? '수동 구매' :
+                           tx.strategyType}
+                        </span>
+                      )}
+                    </td>
                     <td style={{ maxWidth: '300px', wordWrap: 'break-word' }}>
                       <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
                         <span>{analysis[tx.id] || '분석중...'}</span>

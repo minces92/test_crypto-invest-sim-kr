@@ -1,7 +1,7 @@
 'use client';
 
 import { usePortfolio } from '@/context/PortfolioContext';
-import { useState, useEffect } from 'react';
+import { useData } from '@/context/DataProviderContext';
 
 interface Ticker {
   market: string;
@@ -14,34 +14,15 @@ interface PortfolioProps {
 
 export default function Portfolio({ handleOpenModal }: PortfolioProps) {
   const { cash, assets } = usePortfolio();
-  const [tickers, setTickers] = useState<{ [key: string]: Ticker }>({});
+  const { tickers } = useData();
 
-  useEffect(() => {
-    if (assets.length === 0) return;
-
-    const fetchTickerPrices = async () => {
-      const markets = assets.map(a => a.market).join(',');
-      try {
-        const response = await fetch(`/api/tickers?markets=${markets}`);
-        const data: Ticker[] = await response.json();
-        const newTickers = data.reduce((acc, ticker) => {
-          acc[ticker.market] = ticker;
-          return acc;
-        }, {} as { [key: string]: Ticker });
-        setTickers(newTickers);
-      } catch (error) {
-        console.error("Error fetching ticker prices for portfolio:", error);
-      }
-    };
-
-    fetchTickerPrices();
-    const interval = setInterval(fetchTickerPrices, 30000); // 30초마다 갱신
-
-    return () => clearInterval(interval);
-  }, [assets]);
+  const tickersMap = tickers.reduce((acc, ticker) => {
+    acc[ticker.market] = ticker;
+    return acc;
+  }, {} as { [key: string]: Ticker });
 
   const totalAssetValue = assets.reduce((total, asset) => {
-    const currentPrice = tickers[asset.market]?.trade_price || asset.avg_buy_price;
+    const currentPrice = tickersMap[asset.market]?.trade_price || asset.avg_buy_price;
     return total + (currentPrice * asset.quantity);
   }, 0);
 
@@ -71,10 +52,10 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
         ) : (
           <ul className="list-style-none p-0 m-0">
             {assets.map(asset => {
-              const currentPrice = tickers[asset.market]?.trade_price;
+              const currentPrice = tickersMap[asset.market]?.trade_price;
               const currentValue = currentPrice ? currentPrice * asset.quantity : asset.avg_buy_price * asset.quantity;
               const profitLoss = currentValue - (asset.avg_buy_price * asset.quantity);
-              const profitLossRate = (currentValue / (asset.avg_buy_price * asset.quantity) - 1) * 100;
+              const profitLossRate = (asset.avg_buy_price * asset.quantity) === 0 ? 0 : (currentValue / (asset.avg_buy_price * asset.quantity) - 1) * 100;
               const assetTicker = { market: asset.market, trade_price: currentPrice || asset.avg_buy_price };
 
               return (

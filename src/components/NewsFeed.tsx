@@ -17,10 +17,11 @@ export default function NewsFeed() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    const fetchNews = async () => {
+    const fetchNews = async (forceRefresh: boolean = false) => {
       setLoading(true);
       try {
-        const response = await fetch('/api/news');
+        const url = forceRefresh ? '/api/news?refresh=true' : '/api/news';
+        const response = await fetch(url);
         if (!response.ok) {
           throw new Error('Failed to fetch news from server');
         }
@@ -35,10 +36,8 @@ export default function NewsFeed() {
       }
     };
 
-    fetchNews();
-    const interval = setInterval(fetchNews, 60000 * 5); // Fetch news every 5 minutes
-
-    return () => clearInterval(interval);
+    // 초기 로드
+    fetchNews(false);
   }, []);
 
   const getSentimentColor = (sentiment: Article['sentiment']) => {

@@ -29,7 +29,7 @@ export class OllamaClient implements AIClient {
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
-        signal: AbortSignal.timeout(3000), // 3초 타임아웃
+        signal: AbortSignal.timeout(10000), // 10초 타임아웃
       });
       return response.ok;
     } catch (error) {
@@ -56,13 +56,14 @@ export class OllamaClient implements AIClient {
           model,
           prompt,
           stream: false,
+          keep_alive: "5m", // 모델을 5분간 메모리에 유지
           options: {
             temperature,
             num_predict: maxTokens,
             top_p: topP,
           },
         }),
-        signal: AbortSignal.timeout(30000), // 30초 타임아웃
+        signal: AbortSignal.timeout(120000), // 120초 타임아웃
       });
 
       if (!response.ok) {
@@ -104,20 +105,61 @@ export function createAIClient(): AIClient | null {
  */
 export function parseAIResponse(response: string): any {
   try {
-    // JSON 코드 블록이 있는 경우 추출
-    const jsonMatch = response.match(/```json\n([\s\S]*?)\n```/) || 
-                      response.match(/```\n([\s\S]*?)\n```/) ||
-                      response.match(/\{[\s\S]*\}/);
-    
+    // 응답 문자열 정리
+    let cleanedResponse = response.trim();
+
+    // JSON 코드 블록 추출 (더 관대하게)
+    const jsonMatch = cleanedResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/i) || 
+                      cleanedResponse.match(/(\{[\s\S]*\})/);
+
     if (jsonMatch) {
-      return JSON.parse(jsonMatch[1] || jsonMatch[0]);
+      cleanedResponse = jsonMatch[1] || jsonMatch[0];
+    } else {
+      // 코드 블록이 없으면, 가장 큰 JSON 객체/배열을 찾으려고 시도
+      const firstBracket = cleanedResponse.indexOf('{');
+      const firstSquare = cleanedResponse.indexOf('[');
+      const lastBracket = cleanedResponse.lastIndexOf('}');
+      const lastSquare = cleanedResponse.lastIndexOf(']');
+
+      if (firstBracket !== -1 && lastBracket !== -1) {
+        cleanedResponse = cleanedResponse.substring(firstBracket, lastBracket + 1);
+      } else if (firstSquare !== -1 && lastSquare !== -1) {
+        cleanedResponse = cleanedResponse.substring(firstSquare, lastSquare + 1);
+      }
     }
-    
-    // JSON 객체가 직접 있는 경우
-    return JSON.parse(response);
+
+    // 1. 후행 쉼표 제거 (배열 및 객체)
+    cleanedResponse = cleanedResponse.replace(/,(\s*[}\]])/g, '$1');
+
+    // 2. 키를 큰따옴표로 묶기
+    cleanedResponse = cleanedResponse.replace(/([{,])(\s*)([a-zA-Z0-9_]+)(\s*):/g, '$1"$3":');
+
+    // 3. 값의 작은따옴표를 큰따옴표로 바꾸기 (주의: 문자열 내의 작은따옴표는 유지)
+    cleanedResponse = cleanedResponse.replace(/:'([^']*)'/g, ':"$1"');
+
+    try {
+      return JSON.parse(cleanedResponse);
+    } catch (e) {
+      // 파싱 실패 시, 수동으로 주요 필드 추출 시도
+      console.warn('Advanced JSON parsing failed, attempting manual extraction:', e);
+      const trendMatch = cleanedResponse.match(/"trend"\s*:\s*"(.*?)"/);
+      const recommendationMatch = cleanedResponse.match(/"recommendation"\s*:\s*"(.*?)"/);
+      const reasoningMatch = cleanedResponse.match(/"reasoning"\s*:\s*"(.*?)"/);
+
+      if (trendMatch && recommendationMatch && reasoningMatch) {
+        return {
+          trend: trendMatch[1],
+          recommendation: recommendationMatch[1],
+          reasoning: reasoningMatch[1],
+          error: 'Manual extraction'
+        };
+      }
+
+      throw e; // 수동 추출도 실패하면 에러 던지기
+    }
   } catch (error) {
-    console.warn('Failed to parse AI response as JSON:', error);
-    return { raw: response };
+    console.error('Failed to parse AI response as JSON:', error);
+    return { raw: response, error: 'Parsing failed' };
   }
 }
 
@@ -161,7 +203,13 @@ ${ma ? `이동평균선: 단기 ${ma.short}, 장기 ${ma.long}${ma.cross ? ` (${
     "support": 가격,
     "resistance": 가격
   },
-  "reasoning": "분석 이유"
+  "reasoning": "분석 이유",
+  "full_report": {
+    "short_term_forecast": "단기(1-3일) 전망 및 주요 이벤트",
+    "mid_term_forecast": "중기(1-2주) 전망 및 시장 동향",
+    "long_term_forecast": "장기(1개월 이상) 전망 및 거시 경제 영향",
+    "recommended_strategy": "추천 매매 전략 (예: 단기 변동성 매매, 중기 추세 추종, 장기 가치 투자 등)"
+  }
 }
 `;
 }

@@ -55,6 +55,8 @@ export async function POST(request: Request) {
       amount: newTransaction.amount,
       timestamp: newTransaction.timestamp,
       source: newTransaction.source,
+      isAuto: newTransaction.isAuto,
+      strategyType: newTransaction.strategyType,
     });
 
     return NextResponse.json(newTransaction, { status: 201 });

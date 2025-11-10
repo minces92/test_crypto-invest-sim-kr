@@ -10,17 +10,21 @@ export default function OllamaStatus() {
   useEffect(() => {
     const checkOllama = async () => {
       try {
-        const response = await fetch('http://localhost:11434/api/tags', {
+        const response = await fetch('/api/ollama-status', {
           method: 'GET',
-          signal: AbortSignal.timeout(3000),
+          signal: AbortSignal.timeout(5000), // Increased timeout for server-side check
         });
 
         if (response.ok) {
           const data = await response.json();
-          const modelNames = data.models?.map((m: any) => m.name) || [];
-          setModels(modelNames);
-          setStatus('connected');
-          setError(null);
+          if (data.status === 'connected') {
+            setModels(data.models || []);
+            setStatus('connected');
+            setError(null);
+          } else {
+            setStatus('disconnected');
+            setError(data.error || 'Unknown error from server');
+          }
         } else {
           setStatus('disconnected');
           setError(`HTTP ${response.status}`);

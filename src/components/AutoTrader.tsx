@@ -2,6 +2,7 @@
 
 import { usePortfolio, Strategy } from '@/context/PortfolioContext';
 import { useState } from 'react';
+import { recommendedStrategies } from '@/lib/recommended-strategies';
 
 export default function AutoTrader() {
   const { strategies, startStrategy, stopStrategy } = usePortfolio();
@@ -101,6 +102,29 @@ export default function AutoTrader() {
         <h2 className="Box-title">자동 매매</h2>
       </div>
       <div className="Box-body">
+        <div className="text-center">
+          <h3 className="f4 mb-3">추천 전략</h3>
+        </div>
+        <div className="d-flex flex-wrap flex-justify-center" style={{ gap: '16px' }}>
+          {recommendedStrategies.map((rec, index) => (
+            <div key={index} className="Box p-3" style={{ flex: '1 1 250px', maxWidth: '400px' }}>
+              <h4 className="f5 mb-1">{rec.name}</h4>
+              <p className="color-fg-muted text-small mb-3">{rec.description}</p>
+              <button 
+                className="btn btn-sm btn-primary" 
+                onClick={() => startStrategy(rec)}
+              >
+                전략 추가
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <hr className="my-4" />
+
+        <div className="text-center">
+          <h3 className="f4 mb-3">나만의 전략 만들기</h3>
+        </div>
         <form onSubmit={handleAddStrategy} className="d-flex flex-column flex-items-center">
           <div className="form-group mb-3 col-8">
             <div className="form-group-header"><label htmlFor="strategy-select">전략 선택</label></div>
@@ -233,7 +257,7 @@ export default function AutoTrader() {
             {strategies.map(s => (
               <li key={s.id} className="d-flex flex-justify-between flex-items-center py-2 border-bottom">
                 <div className="col-9">
-                  <strong>{s.market.replace('KRW-','')}</strong>
+                  <strong>{s.name || s.market.replace('KRW-','')}</strong>
                   <span className="d-block color-fg-muted text-small">
                     {s.strategyType === 'dca' && `적립식 (${s.amount.toLocaleString()}원 / ${s.interval})`}
                     {s.strategyType === 'ma' && `이평선 교차 (${s.shortPeriod} / ${s.longPeriod})`}
@@ -243,6 +267,7 @@ export default function AutoTrader() {
                     {s.strategyType === 'volatility' && `변동성 돌파 (승수: ${s.multiplier})`}
                     {s.strategyType === 'momentum' && `모멘텀 (기간: ${s.period}, 임계값: ${s.threshold}%)`}
                   </span>
+                  {s.description && <p className="color-fg-subtle text-small mt-1 mb-0">{s.description}</p>}
                 </div>
                 <button className="btn btn-danger btn-sm" onClick={() => stopStrategy(s.id)}>중지</button>
               </li>

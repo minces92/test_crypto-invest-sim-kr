@@ -37,8 +37,9 @@ export default function Home() {
       <Header />
       <div className="container-lg p-responsive py-4">
         <div className="d-flex flex-wrap gutter-spacious">
-          <div className="col-12 col-lg-12 mb-4">
-            <div className="Box mt-4 border">
+          {/* Main Content Column */}
+          <div className="col-12 col-lg-7 mb-4">
+            <div className="Box mb-4 border">
               <div className="Box-header">
                 <h2 className="Box-title">코인 비교 차트</h2>
               </div>
@@ -46,15 +47,15 @@ export default function Home() {
                 <MultiChartComponent markets={['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA']} />
               </div>
             </div>
-          </div>
-          <div className="col-12 col-lg-12 mb-4">
             <CryptoTable handleOpenModal={handleOpenModal} />
             <TransactionHistory />
-            <NewsFeed />
           </div>
-          <div className="col-12 col-lg-12 mb-4">
+
+          {/* Sidebar Column */}
+          <div className="col-12 col-lg-5 mb-4">
             <Portfolio handleOpenModal={handleOpenModal} />
             <AutoTrader />
+            <NewsFeed />
             <OllamaStatus />
           </div>
         </div>

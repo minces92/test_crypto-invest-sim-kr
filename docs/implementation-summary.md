@@ -79,6 +79,31 @@
 - `AI_BASE_URL=http://localhost:11434` - Ollama 서버 URL
 - `AI_MODEL_ANALYSIS=mistral` - 분석용 모델
 
+### 5. UI/UX 및 시스템 아키텍처 개선 ✅
+
+#### 구현된 기능:
+- **반응형 UI 적용**
+  - 메인 페이지 레이아웃을 2단 그리드로 변경하여 모바일 화면에서도 콘텐츠가 잘 보이도록 수정했습니다.
+  - 거래 모달(`TradeModal`)의 너비를 유동적으로 변경하여 작은 화면에서 깨지지 않도록 수정했습니다.
+  - 자동 매매(`AutoTrader`)의 추천 전략 카드들이 화면 크기에 따라 유연하게 배치되도록 개선했습니다.
+
+- **데이터 제공 로직 분리 (`DataProviderContext`)**
+  - 실시간 시세 데이터를 5초마다 가져오는 `DataProviderContext`를 신설했습니다.
+  - 기존에 각 컴포넌트(CryptoTable, Portfolio 등)에서 개별적으로 관리하던 데이터 요청 로직을 중앙화하여, 데이터 흐름을 단순화하고 불필요한 API 호출을 줄였습니다.
+  - 이를 통해 데이터 갱신과 거래 실행 로직이 분리되어 시스템 안정성이 향상되었습니다.
+
+- **거래 내역 유실 버그 수정**
+  - `PortfolioContext`의 낙관적 업데이트(Optimistic Update) 로직을 수정했습니다.
+  - API 요청 실패 시, 전체 거래 내역을 이전 상태로 되돌리는 대신 실패한 특정 거래만 목록에서 제거하도록 변경하여 동시 다발적인 요청에도 거래 내역이 유실되지 않도록 안정성을 확보했습니다.
+
+#### 파일:
+- `src/app/page.tsx` - 반응형 레이아웃 적용
+- `src/components/TradeModal.tsx` - 모달 너비 수정
+- `src/context/DataProviderContext.tsx` - 신규 데이터 제공 컨텍스트
+- `src/context/PortfolioContext.tsx` - 데이터 로직 분리 및 버그 수정
+- `src/components/CryptoTable.tsx` - `DataProviderContext` 사용
+- `src/components/Portfolio.tsx` - `DataProviderContext` 사용
+
 ## 설치된 패키지
 
 ```bash

@@ -79,7 +79,7 @@ function initializeDatabase(database: Database.Database) {
       ON transaction_analysis_cache(created_at);
   `);
 
-  // 거래 내역 테이블
+  // 거래 내역 테이블 (기본 구조)
   database.exec(`
     CREATE TABLE IF NOT EXISTS transactions (
       id TEXT PRIMARY KEY,
@@ -88,10 +88,27 @@ function initializeDatabase(database: Database.Database) {
       price REAL NOT NULL,
       amount REAL NOT NULL,
       timestamp TEXT NOT NULL,
-      source TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+  `);
 
+  // PRAGMA를 사용하여 테이블 정보 가져오기
+  const columns: { name: string }[] = database.pragma('table_info(transactions)') as any;
+  const columnNames = columns.map(c => c.name);
+
+  // 누락된 컬럼 추가
+  if (!columnNames.includes('source')) {
+    database.exec('ALTER TABLE transactions ADD COLUMN source TEXT');
+  }
+  if (!columnNames.includes('is_auto')) {
+    database.exec('ALTER TABLE transactions ADD COLUMN is_auto INTEGER DEFAULT 0');
+  }
+  if (!columnNames.includes('strategy_type')) {
+    database.exec('ALTER TABLE transactions ADD COLUMN strategy_type TEXT');
+  }
+
+  // 인덱스 생성
+  database.exec(`
     CREATE INDEX IF NOT EXISTS idx_transactions_timestamp 
       ON transactions(timestamp DESC);
     
@@ -100,6 +117,9 @@ function initializeDatabase(database: Database.Database) {
     
     CREATE INDEX IF NOT EXISTS idx_transactions_type 
       ON transactions(type);
+    
+    CREATE INDEX IF NOT EXISTS idx_transactions_is_auto 
+      ON transactions(is_auto);
   `);
 }
 
@@ -206,44 +226,63 @@ export async function getCandlesWithCache(
 export async function getNewsWithCache(
   query: string,
   language: string = 'ko',
-  cacheHours: number = 24
+  cacheHours: number = 1,
+  forceRefresh: boolean = false
 ): Promise<NewsCacheData[]> {
   const database = getDatabase();
   const cacheExpiry = new Date(Date.now() - cacheHours * 60 * 60 * 1000);
 
-  // 캐시에서 최근 데이터 확인
-  const cached = database
-    .prepare(`
-      SELECT * FROM news_cache
-      WHERE created_at > ?
-      ORDER BY published_at DESC
-      LIMIT 50
-    `)
-    .all(cacheExpiry.toISOString()) as Array<{
-    title: string;
-    description: string | null;
-    url: string;
-    source_name: string;
-    published_at: string;
-    sentiment: string | null;
-  }>;
+  // 강제 갱신이 아니면 캐시 확인
+  if (!forceRefresh) {
+    const cached = database
+      .prepare(`
+        SELECT * FROM news_cache
+        WHERE created_at > ?
+        ORDER BY published_at DESC
+        LIMIT 50
+      `)
+      .all(cacheExpiry.toISOString()) as Array<{
+      title: string;
+      description: string | null;
+      url: string;
+      source_name: string;
+      published_at: string;
+      sentiment: string | null;
+    }>;
 
-  // 캐시에 데이터가 있으면 반환
-  if (cached.length > 0) {
-    return cached.map(row => ({
-      title: row.title,
-      description: row.description,
-      url: row.url,
-      source: { name: row.source_name },
-      publishedAt: row.published_at,
-      sentiment: row.sentiment || undefined,
-    }));
+    // 캐시에 충분한 데이터가 있으면 반환 (최소 5개 이상)
+    if (cached.length >= 5) {
+      return cached.map(row => ({
+        title: row.title,
+        description: row.description,
+        url: row.url,
+        source: { name: row.source_name },
+        publishedAt: row.published_at,
+        sentiment: row.sentiment || undefined,
+      }));
+    }
   }
 
   // API에서 데이터 가져오기 (NewsAPI 사용)
   const NEWS_API_KEY = process.env.NEWS_API_KEY;
   if (!NEWS_API_KEY) {
-    return cached.map(row => ({
+    // 캐시된 데이터가 있으면 반환, 없으면 빈 배열
+    const fallbackCached = database
+      .prepare(`
+        SELECT * FROM news_cache
+        ORDER BY published_at DESC
+        LIMIT 50
+      `)
+      .all() as Array<{
+      title: string;
+      description: string | null;
+      url: string;
+      source_name: string;
+      published_at: string;
+      sentiment: string | null;
+    }>;
+    
+    return fallbackCached.map(row => ({
       title: row.title,
       description: row.description,
       url: row.url,
@@ -258,7 +297,23 @@ export async function getNewsWithCache(
   );
 
   if (!response.ok) {
-    return cached.map(row => ({
+    // 캐시된 데이터가 있으면 반환, 없으면 빈 배열
+    const fallbackCached = database
+      .prepare(`
+        SELECT * FROM news_cache
+        ORDER BY published_at DESC
+        LIMIT 50
+      `)
+      .all() as Array<{
+      title: string;
+      description: string | null;
+      url: string;
+      source_name: string;
+      published_at: string;
+      sentiment: string | null;
+    }>;
+    
+    return fallbackCached.map(row => ({
       title: row.title,
       description: row.description,
       url: row.url,
@@ -428,6 +483,8 @@ export function getTransactions(): Array<{
   amount: number;
   timestamp: string;
   source?: string;
+  isAuto: boolean;
+  strategyType?: string;
 }> {
   const database = getDatabase();
   const results = database
@@ -440,6 +497,8 @@ export function getTransactions(): Array<{
     amount: number;
     timestamp: string;
     source: string | null;
+    is_auto: number;
+    strategy_type: string | null;
   }>;
 
   return results.map(row => ({
@@ -450,6 +509,8 @@ export function getTransactions(): Array<{
     amount: row.amount,
     timestamp: row.timestamp,
     source: row.source || undefined,
+    isAuto: row.is_auto === 1,
+    strategyType: row.strategy_type || undefined,
   }));
 }
 
@@ -465,13 +526,22 @@ export function saveTransaction(transaction: {
   amount: number;
   timestamp: string;
   source?: string;
+  isAuto?: boolean;
+  strategyType?: string;
 }): void {
   const database = getDatabase();
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO transactions 
-    (id, type, market, price, amount, timestamp, source)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (id, type, market, price, amount, timestamp, source, is_auto, strategy_type)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
+
+  // source가 'manual'이면 isAuto = 0, 그 외는 1
+  const isAuto = transaction.isAuto !== undefined 
+    ? transaction.isAuto 
+    : (transaction.source !== 'manual' && transaction.source !== undefined);
+  
+  const strategyType = transaction.strategyType;
 
   stmt.run(
     transaction.id,
@@ -480,7 +550,9 @@ export function saveTransaction(transaction: {
     transaction.price,
     transaction.amount,
     transaction.timestamp,
-    transaction.source || null
+    transaction.source || null,
+    isAuto ? 1 : 0,
+    strategyType || null
   );
 }
 

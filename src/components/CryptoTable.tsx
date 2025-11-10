@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useData } from '@/context/DataProviderContext';
 
 interface Ticker {
   market: string;
@@ -13,35 +13,7 @@ interface CryptoTableProps {
 }
 
 export default function CryptoTable({ handleOpenModal }: CryptoTableProps) {
-  const [tickers, setTickers] = useState<Ticker[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    async function fetchTickers() {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/tickers');
-        if (!response.ok) {
-          throw new Error('Failed to fetch data from server');
-        }
-        const data: Ticker[] = await response.json();
-        setTickers(data);
-        setError(null);
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
-        setError(errorMessage);
-      } finally {
-        setLoading(false);
-      }
-    }
-
-    fetchTickers();
-    // 30초마다 데이터 갱신
-    const interval = setInterval(fetchTickers, 30000);
-
-    return () => clearInterval(interval);
-  }, []);
+  const { tickers, loading, error } = useData();
 
   const getMarketName = (market: string) => {
     const names: { [key: string]: string } = {

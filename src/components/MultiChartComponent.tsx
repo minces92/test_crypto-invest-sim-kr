@@ -50,7 +50,6 @@ export default function MultiChartComponent({
       setLoading(false);
       return;
     }
-
     const fetchAndRenderChart = async () => {
       setLoading(true);
       setError(null);
@@ -176,7 +175,19 @@ export default function MultiChartComponent({
       }
     };
 
+    // initial fetch
     fetchAndRenderChart();
+
+    // 폴링 주기: 전역 REFRESH_INTERVAL을 따르되 기본값은 5000ms
+    const refreshInterval = process.env.NEXT_PUBLIC_REFRESH_INTERVAL
+      ? parseInt(process.env.NEXT_PUBLIC_REFRESH_INTERVAL, 10)
+      : 5000;
+
+    const intervalId = setInterval(() => {
+      fetchAndRenderChart();
+    }, refreshInterval);
+
+    return () => clearInterval(intervalId);
   }, [selectedMarkets, currentComparisonMode]);
 
   const availableMarkets = [

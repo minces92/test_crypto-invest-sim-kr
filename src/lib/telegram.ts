@@ -32,7 +32,7 @@ export async function sendMessage(text: string, parse_mode: 'HTML' | 'MarkdownV2
       const body = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        console.error(`Telegram send attempt ${attempt} failed`, { chatId, status: response.status, body });
+        console.error(`[telegram]\tattempt:${attempt}\tstatus:${response.status}\tchat:${chatId}\tok:false\tbody:${JSON.stringify(body)}`);
         // Retry for 5xx or transient network errors
         if (response.status >= 500 && attempt < maxAttempts) {
           const delay = Math.pow(2, attempt) * 250;
@@ -43,14 +43,14 @@ export async function sendMessage(text: string, parse_mode: 'HTML' | 'MarkdownV2
       }
 
       if (!body || body.ok !== true) {
-        console.error(`Telegram send attempt ${attempt} returned ok:false`, { chatId, body });
+        console.error(`[telegram]\tattempt:${attempt}\tchat:${chatId}\tok:false\tbody:${JSON.stringify(body)}`);
         return false;
       }
 
-      console.log('Telegram message sent successfully.', { chatId, message_id: body.result?.message_id });
+      console.log(`[telegram]\tattempt:${attempt}\tchat:${chatId}\tok:true\tmessage_id:${body.result?.message_id}`);
       return true;
     } catch (error) {
-      console.error(`Telegram send attempt ${attempt} error:`, error);
+      console.error(`[telegram]\tattempt:${attempt}\terror:${error instanceof Error ? error.message : String(error)}`);
       if (attempt < maxAttempts) {
         const delay = Math.pow(2, attempt) * 250;
         await new Promise(r => setTimeout(r, delay));

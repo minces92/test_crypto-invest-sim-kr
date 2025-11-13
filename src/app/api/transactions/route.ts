@@ -59,6 +59,65 @@ export async function POST(request: Request) {
       strategyType: newTransaction.strategyType,
     });
 
+    // 서버에서 텔레그램 전송 및 로그 기록 (서버가 담당)
+    (async () => {
+      try {
+        const cache = await import('@/lib/cache');
+        const telegram = await import('@/lib/telegram');
+
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+        const typeText = newTransaction.type === 'buy' ? '📈 매수' : '📉 매도';
+        const marketName = newTransaction.market.replace('KRW-', '');
+        const totalCost = (newTransaction.price * newTransaction.amount).toLocaleString('ko-KR', { maximumFractionDigits: 0 });
+
+        // 자동/수동 및 전략 정보
+        const autoText = newTransaction.isAuto ? '자동' : (newTransaction.source === 'manual' ? '수동' : '자동');
+        const strategyText = newTransaction.strategyType || '직접/수동';
+
+        // 거래에 대한 간단한 AI 평가를 요청 (있으면 사용)
+        let analysisText = '';
+        try {
+          const analysisResp = await fetch(`${siteUrl}/api/analyze-trade`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ transaction: newTransaction }),
+          });
+          if (analysisResp.ok) {
+            const analysisJson = await analysisResp.json();
+            analysisText = (analysisJson.analysis || '') + (analysisJson.cached ? ' (cached)' : '');
+            if (typeof analysisText === 'string') {
+              analysisText = analysisText.trim().replace(/\n+/g, ' ');
+              if (analysisText.length > 300) analysisText = analysisText.slice(0, 300) + '...';
+            } else {
+              analysisText = '';
+            }
+          }
+        } catch (analysisErr) {
+          console.warn('Failed to fetch analyze-trade for transaction', newTransaction.id, analysisErr);
+        }
+
+        const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>가격:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
+
+        const sent = await telegram.sendMessage(message, 'HTML');
+
+        cache.logNotificationAttempt({
+          transactionId: newTransaction.id,
+          sourceType: 'transaction',
+          channel: 'telegram',
+          payload: message,
+          success: !!sent,
+          responseCode: sent ? 200 : 0,
+          responseBody: sent ? 'ok' : 'failed',
+        });
+
+        if (sent) {
+          cache.markTransactionNotified(newTransaction.id);
+        }
+      } catch (err) {
+        console.error('Server-side notification failed for transaction:', newTransaction.id, err);
+      }
+    })();
+
     return NextResponse.json(newTransaction, { status: 201 });
   } catch (error) {
     console.error('Error writing transaction:', error);

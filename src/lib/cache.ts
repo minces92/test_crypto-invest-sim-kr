@@ -3,6 +3,55 @@ import path from 'path';
 import fs from 'fs';
 import { sendMessage } from './telegram';
 
+// In-flight request dedupe map to avoid parallel identical API calls
+const inFlightRequests: Map<string, Promise<any>> = new Map();
+
+async function fetchWithRetries(apiUrl: string, maxAttempts = 4, baseDelayMs = 500) {
+  // If another fetch for the same URL is in progress, reuse it
+  if (inFlightRequests.has(apiUrl)) {
+    return inFlightRequests.get(apiUrl)!;
+  }
+
+  const p = (async () => {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const res = await fetch(apiUrl);
+        if (!res.ok) {
+          // Rate limit or server errors -> retry
+          if ((res.status === 429 || res.status >= 500) && attempt < maxAttempts) {
+            const delay = Math.pow(2, attempt - 1) * baseDelayMs;
+            console.warn(`[cache] Upbit fetch attempt ${attempt} failed with status ${res.status}, retrying after ${delay}ms`, { apiUrl });
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          const text = await res.text().catch(() => '');
+          throw new Error(`Upbit API request failed: ${res.status} for URL: ${apiUrl} ${text ? '- ' + text : ''}`);
+        }
+
+        const json = await res.json();
+        return json;
+      } catch (err) {
+        // network or other error
+        if (attempt < maxAttempts) {
+          const delay = Math.pow(2, attempt - 1) * baseDelayMs;
+          console.warn(`[cache] Upbit fetch attempt ${attempt} error, retrying after ${delay}ms`, { apiUrl, err });
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        throw err;
+      }
+    }
+  })();
+
+  inFlightRequests.set(apiUrl, p);
+  try {
+    const result = await p;
+    return result;
+  } finally {
+    inFlightRequests.delete(apiUrl);
+  }
+}
+
 const dbPath = path.join(process.cwd(), 'crypto_cache.db');
 
 // 데이터베이스 초기화
@@ -128,6 +177,9 @@ function initializeDatabase(database: Database.Database) {
   if (!columnNames.includes('strategy_type')) {
     database.exec('ALTER TABLE transactions ADD COLUMN strategy_type TEXT');
   }
+  if (!columnNames.includes('notification_sent')) {
+    database.exec('ALTER TABLE transactions ADD COLUMN notification_sent INTEGER DEFAULT 0');
+  }
 
   // 인덱스 생성
   database.exec(`
@@ -142,6 +194,27 @@ function initializeDatabase(database: Database.Database) {
     
     CREATE INDEX IF NOT EXISTS idx_transactions_is_auto 
       ON transactions(is_auto);
+  `);
+
+  // 알림 로그 테이블 (notification attempts)
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS notification_log (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      transaction_id TEXT,
+      source_type TEXT,
+      channel TEXT,
+      payload TEXT,
+      success INTEGER,
+      response_code INTEGER,
+      response_body TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_notification_transaction_id
+      ON notification_log(transaction_id);
+
+    CREATE INDEX IF NOT EXISTS idx_notification_created_at
+      ON notification_log(created_at);
   `);
 }
 
@@ -181,7 +254,7 @@ export async function getCandlesWithCache(
 
   // Normalize interval: guard against literal 'undefined' or empty strings coming from query params
   if (!interval || interval === 'undefined' || (typeof interval === 'string' && interval.trim() === '')) {
-    console.warn('[cache] getCandlesWithCache received invalid interval, defaulting to "day"', { market, count, interval });
+    console.warn(`[cache]\tgetCandlesWithCache\tmarket:${market}\tcount:${count}\tinterval:invalid->day`);
     interval = 'day';
   }
 
@@ -230,11 +303,36 @@ export async function getCandlesWithCache(
     throw new Error(`Unsupported interval: ${interval}. Supported: ${supported.join(', ')}`);
   }
 
-  const response = await fetch(apiUrl);
-  if (!response.ok) {
-    throw new Error(`Upbit API request failed: ${response.status} for URL: ${apiUrl}`);
+  let freshData: CandleCacheData[] = [];
+  try {
+    const json = await fetchWithRetries(apiUrl);
+    freshData = json as CandleCacheData[];
+  } catch (err) {
+    console.error('[cache] Upbit fetch failed after retries:', err);
+    // If cached data exists (even stale), return it as fallback
+    const fallback = database
+      .prepare(`
+        SELECT * FROM candle_cache
+        WHERE market = ? AND interval = ?
+        ORDER BY candle_date_time_utc DESC
+        LIMIT ?
+      `)
+      .all(market, interval, count) as any[];
+
+    if (fallback && fallback.length > 0) {
+  console.warn(`[cache]\tFallbackCandles\tmarket:${market}\tinterval:${interval}\tcached:${fallback.length}`);
+      return fallback.map(row => ({
+        candle_date_time_utc: row.candle_date_time_utc,
+        opening_price: row.opening_price,
+        high_price: row.high_price,
+        low_price: row.low_price,
+        trade_price: row.trade_price,
+      })).sort((a, b) => new Date(a.candle_date_time_utc).getTime() - new Date(b.candle_date_time_utc).getTime());
+    }
+
+    // No fallback available, rethrow to caller
+    throw err;
   }
-  const freshData: CandleCacheData[] = await response.json();
 
   // 캐시에 저장
   const stmt = database.prepare(`
@@ -364,16 +462,16 @@ export async function getNewsWithCache(
   `);
   const updateNotifiedStmt = database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?');
 
-  const transaction = database.transaction(() => {
-    const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
+  const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
 
+  // Notify queue - collect items to notify after the DB transaction
+  const notifyQueue: Array<{ url: string; message: string; sentiment: string }> = [];
+
+  const transaction = database.transaction(() => {
     for (const article of freshData) {
       const sentiment = analyzeSentiment(article.title, article.description);
-      
-      // DB에 이미 존재하는지, 그리고 notified 상태인지 확인
       const existing = database.prepare('SELECT notified FROM news_cache WHERE url = ?').get(article.url) as { notified: number } | undefined;
 
-      // 새롭고(존재하지 않거나), 아직 알림이 가지 않은(notified=0) 주요 뉴스인 경우 알림 전송
       if ((!existing || existing.notified === 0) && (sentiment === 'positive' || sentiment === 'negative')) {
         const sentimentText = sentiment === 'positive' ? '📢 호재' : '⚠️ 악재';
         const message = `
@@ -385,9 +483,8 @@ export async function getNewsWithCache(
 -------------------------
 <a href="${article.url}">원문 보기</a> | <a href="${siteUrl}">사이트 방문</a>
         `;
-        sendMessage(message, 'HTML');
-        
-        // 알림 상태와 함께 저장
+
+        // 일단 DB에 저장하되 notified는 0으로 둠; 전송 성공 시 업데이트
         stmt.run(
           article.title,
           article.description,
@@ -395,10 +492,12 @@ export async function getNewsWithCache(
           article.source.name,
           article.publishedAt,
           sentiment,
-          1 // notified = 1
+          0
         );
+
+        notifyQueue.push({ url: article.url, message, sentiment });
       } else {
-        // 그 외의 경우, 기존 notified 상태를 유지하며 저장
+        // 기존 notified 상태를 유지하며 저장
         stmt.run(
           article.title,
           article.description,
@@ -413,6 +512,44 @@ export async function getNewsWithCache(
   });
 
   transaction();
+
+  // 트랜잭션 커밋 후 실제 알림 전송 및 로그 기록
+  (async () => {
+    for (const item of notifyQueue) {
+      try {
+        const telegram = await import('./telegram');
+        const sent = await telegram.sendMessage(item.message, 'HTML');
+
+        logNotificationAttempt({
+          transactionId: null,
+          sourceType: 'news',
+          channel: 'telegram',
+          payload: item.message,
+          success: !!sent,
+          responseCode: sent ? 200 : 0,
+          responseBody: sent ? 'ok' : 'failed',
+        });
+
+        consoleLogNotification('NewsSend', { url: item.url, sent });
+
+        if (sent) {
+          database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?').run(item.url);
+        }
+      } catch (err) {
+        console.error('News notification failed:', err);
+        logNotificationAttempt({
+          transactionId: null,
+          sourceType: 'news',
+          channel: 'telegram',
+          payload: item.message,
+          success: false,
+          responseCode: null,
+          responseBody: err instanceof Error ? err.message : String(err),
+        });
+        consoleLogNotification('NewsSendError', { url: item.url, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+  })();
 
   return freshData.map(article => ({
     ...article,
@@ -535,17 +672,7 @@ export function getTransactions(): Array<{
   const database = getDatabase();
   const results = database
     .prepare('SELECT * FROM transactions ORDER BY timestamp DESC')
-    .all() as Array<{
-    id: string;
-    type: string;
-    market: string;
-    price: number;
-    amount: number;
-    timestamp: string;
-    source: string | null;
-    is_auto: number;
-    strategy_type: string | null;
-  }>;
+    .all() as Array<any>;
 
   return results.map(row => ({
     id: row.id,
@@ -556,8 +683,138 @@ export function getTransactions(): Array<{
     timestamp: row.timestamp,
     source: row.source || undefined,
     isAuto: row.is_auto === 1,
+    notificationSent: row.notification_sent === 1,
     strategyType: row.strategy_type || undefined,
   }));
+}
+
+/**
+ * 알림(푸시) 시도 정보를 DB에 기록합니다.
+ * @param args - 로그 정보
+ */
+export function logNotificationAttempt(args: {
+  transactionId?: string | null;
+  sourceType: string; // e.g., 'transaction', 'news'
+  channel: string; // e.g., 'telegram'
+  payload: string; // message body (truncated if needed)
+  success: boolean;
+  responseCode?: number | null;
+  responseBody?: string | null;
+}) {
+  const database = getDatabase();
+  const stmt = database.prepare(`
+    INSERT INTO notification_log
+    (transaction_id, source_type, channel, payload, success, response_code, response_body)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  // Truncate payload/responseBody to reasonable size to avoid DB bloat
+  const maxLen = 2000;
+  const payloadStr = args.payload ? String(args.payload).slice(0, maxLen) : null;
+  const responseBodyStr = args.responseBody ? String(args.responseBody).slice(0, maxLen) : null;
+
+  stmt.run(
+    args.transactionId || null,
+    args.sourceType,
+    args.channel,
+    payloadStr,
+    args.success ? 1 : 0,
+    args.responseCode || null,
+    responseBodyStr || null
+  );
+}
+
+export function getNotificationLogs(limit: number = 100) {
+  const database = getDatabase();
+  const rows = database
+    .prepare('SELECT * FROM notification_log ORDER BY created_at DESC LIMIT ?')
+    .all(limit) as Array<any>;
+
+  return rows.map(r => ({
+    id: r.id,
+    transactionId: r.transaction_id,
+    sourceType: r.source_type,
+    channel: r.channel,
+    payload: r.payload,
+    success: r.success === 1,
+    responseCode: r.response_code,
+    responseBody: r.response_body,
+    createdAt: r.created_at,
+    // createdAt in KST for convenience
+    createdAtKst: new Date(r.created_at + 'Z').toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
+  }));
+}
+
+/**
+ * 거래의 notification_sent 플래그를 설정합니다.
+ * @param transactionId
+ */
+export function markTransactionNotified(transactionId: string) {
+  const database = getDatabase();
+  database.prepare('UPDATE transactions SET notification_sent = 1 WHERE id = ?').run(transactionId);
+}
+
+/**
+ * 콘솔 로그 출력 포맷 헬퍼
+ */
+export function consoleLogNotification(label: string, details: Record<string, any>) {
+  // 깔끔한 탭 정렬 출력
+  const kst = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  const base = `[notification]\t${label}\t${kst}`;
+  const detailStr = Object.entries(details)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join('\t');
+  console.log(`${base}\t${detailStr}`);
+}
+
+/**
+ * 재시도: 실패한 알림들을 주기적으로 확인하고 재전송합니다.
+ */
+export async function resendFailedNotifications(limit = 20) {
+  const database = getDatabase();
+  const rows = database
+    .prepare('SELECT * FROM notification_log WHERE success = 0 ORDER BY created_at ASC LIMIT ?')
+    .all(limit) as Array<any>;
+
+  if (!rows || rows.length === 0) return 0;
+
+  const telegram = await import('./telegram');
+  let successCount = 0;
+
+  for (const r of rows) {
+    try {
+      const sent = await telegram.sendMessage(r.payload, 'HTML');
+      logNotificationAttempt({
+        transactionId: r.transaction_id,
+        sourceType: r.source_type,
+        channel: r.channel,
+        payload: r.payload,
+        success: !!sent,
+        responseCode: sent ? 200 : 0,
+        responseBody: sent ? 'ok' : 'failed',
+      });
+
+      if (sent && r.transaction_id) {
+        database.prepare('UPDATE transactions SET notification_sent = 1 WHERE id = ?').run(r.transaction_id);
+      }
+
+      successCount += sent ? 1 : 0;
+    } catch (err) {
+      console.error('Resend notification error for id', r.id, err);
+    }
+  }
+
+  return successCount;
+}
+
+// 시작: 개발 환경에서 자동으로 주기적 재시도 작업 등록
+if (process.env.NODE_ENV !== 'test') {
+  // 30초마다 실패 알림 재시도
+  setInterval(() => {
+    resendFailedNotifications(50).then(cnt => {
+      if (cnt > 0) consoleLogNotification('ResendSummary', { resent: cnt });
+    }).catch(err => console.error('Resend worker error:', err));
+  }, 30 * 1000);
 }
 
 /**
@@ -574,6 +831,7 @@ export function saveTransaction(transaction: {
   source?: string;
   isAuto?: boolean;
   strategyType?: string;
+  notificationSent?: boolean;
 }): void {
   const database = getDatabase();
   const stmt = database.prepare(`
@@ -598,7 +856,8 @@ export function saveTransaction(transaction: {
     transaction.timestamp,
     transaction.source || null,
     isAuto ? 1 : 0,
-    strategyType || null
+    strategyType || null,
+    transaction.notificationSent ? 1 : 0
   );
 }
 

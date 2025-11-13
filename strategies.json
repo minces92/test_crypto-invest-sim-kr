@@ -1,23 +1,51 @@
 [
   {
-    "strategyType": "dca",
+    "strategyType": "news",
     "market": "KRW-BTC",
-    "amount": 50000,
-    "interval": "daily",
-    "name": "안정적인 비트코인 적립식",
-    "description": "매일 5만원씩 비트코인을 꾸준히 매수하여 장기적인 자산 증식을 목표로 합니다.",
-    "id": "2025-11-13T05:14:05.456Z0.3955784448528956",
+    "sentimentThreshold": "negative",
+    "id": "2025-11-13T07:28:24.345Z0.7749386152121127",
     "isActive": true
   },
   {
-    "strategyType": "momentum",
-    "market": "KRW-DOGE",
-    "period": 12,
-    "threshold": 5,
-    "name": "도지코인 변동성 돌파",
-    "description": "최근 가격 변동성이 커질 때 매수하여 단기적인 가격 급등을 포착하는 전략입니다. 위험성이 높습니다.",
-    "id": "2025-11-13T05:14:06.131Z0.1293551123711547",
+    "strategyType": "news",
+    "market": "KRW-SOL",
+    "sentimentThreshold": "negative",
+    "id": "2025-11-13T08:21:22.007Z0.8064512687955113",
     "isActive": true
+  },
+  {
+    "strategyType": "news",
+    "market": "KRW-SOL",
+    "sentimentThreshold": "positive",
+    "id": "2025-11-13T08:21:27.692Z0.36395946527199785",
+    "isActive": true
+  },
+  {
+    "strategyType": "news",
+    "market": "KRW-BTC",
+    "sentimentThreshold": "positive",
+    "id": "2025-11-13T08:21:32.296Z0.940164016532853",
+    "isActive": true
+  },
+  {
+    "strategyType": "rsi",
+    "market": "KRW-MATIC",
+    "period": 14,
+    "buyThreshold": 25,
+    "sellThreshold": 65,
+    "name": "저변동 코인 평균회귀(MATIC)",
+    "description": "저변동 알트코인에서 RSI가 과매도 근처로 진입하면 평균회귀 관점에서 분할매수하는 전략입니다.",
+    "id": "2025-11-13T09:00:00.000Z0.1",
+    "isActive": false
+  },
+  {
+    "strategyType": "volatility",
+    "market": "KRW-ADA",
+    "multiplier": 0.6,
+    "name": "ADA 변동성 돌파 (권장)",
+    "description": "일간 캔들의 변동성 범위를 이용한 돌파 전략으로, 상승 모멘텀이 확인될 경우 포지션을 잡습니다.",
+    "id": "2025-11-13T09:00:05.000Z0.2",
+    "isActive": false
   },
   {
     "strategyType": "ma",
@@ -26,7 +54,7 @@
     "longPeriod": 30,
     "name": "이더리움 골든크로스",
     "description": "단기 이동평균선이 장기 이동평균선을 상향 돌파할 때 매수하여 추세 상승장에서 수익을 얻는 전략입니다.",
-    "id": "2025-11-13T05:14:07.107Z0.73975264710592",
+    "id": "2025-11-13T08:28:14.939Z0.5810986620997948",
     "isActive": true
   },
   {
@@ -37,21 +65,27 @@
     "sellThreshold": 70,
     "name": "솔라나 과매도/과매수",
     "description": "RSI 지표를 활용하여 과매도 구간(30 이하)에서 매수하고 과매수 구간(70 이상)에서 매도하는 단기 트레이딩 전략입니다.",
-    "id": "2025-11-13T05:14:07.820Z0.29314039250032586",
+    "id": "2025-11-13T08:28:16.394Z0.09279585703427962",
     "isActive": true
   },
   {
-    "strategyType": "news",
-    "market": "KRW-BTC",
-    "sentimentThreshold": "negative",
-    "id": "2025-11-13T05:22:40.482Z0.7709455097251842",
+    "strategyType": "momentum",
+    "market": "KRW-DOGE",
+    "period": 12,
+    "threshold": 5,
+    "name": "도지코인 변동성 돌파",
+    "description": "최근 가격 변동성이 커질 때 매수하여 단기적인 가격 급등을 포착하는 전략입니다. 위험성이 높습니다.",
+    "id": "2025-11-13T08:28:17.541Z0.5206363062110999",
     "isActive": true
-  },
+  }
+  ,
   {
     "strategyType": "news",
-    "market": "KRW-SOL",
-    "sentimentThreshold": "negative",
-    "id": "2025-11-13T05:22:44.802Z0.6424568949437761",
+    "market": "ALL",
+    "sentimentThreshold": "both",
+    "name": "뉴스 기반 전종목 스캐너 (전체 묶음)",
+    "description": "뉴스의 긍정/부정 신호를 전체 마켓에 적용하여 호재일 경우 매수, 악재일 경우 부분매도(보유수량의 50%)를 수행합니다. 알림 주기: 5분",
+    "id": "2025-11-13T10:00:00.000Z-global-news-1",
     "isActive": true
   }
 ]

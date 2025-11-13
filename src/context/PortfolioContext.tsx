@@ -205,7 +205,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     // Optimistic update
     setTransactions(prevTransactions => [newTransaction, ...prevTransactions]);
 
-    // Send Telegram notification
+    // Send Telegram notification (await result and log for diagnostics)
     const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
     const typeText = type === 'buy' ? '📈 매수' : '📉 매도';
     const marketName = market.replace('KRW-', '');
@@ -222,7 +222,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 -------------------------
 <a href="${siteUrl}">사이트에서 확인하기</a>
     `;
-    sendMessage(message, 'HTML');
+
+    // 서버가 저장 이후에 알림 전송 및 로깅을 담당합니다.
 
     try {
       const response = await fetch('/api/transactions', {
@@ -540,39 +541,75 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       } catch (error) { console.error('BBand 전략 실행 실패:', error); }
     } else if (strategy.strategyType === 'news') {
       try {
-        const response = await fetch(`/api/news?query=${strategy.market.replace('KRW-', '')}&language=ko`);
-        const newsArticles = await response.json();
+        // Support global news scanner: market === 'ALL' or '*'
+        const isGlobal = strategy.market === 'ALL' || strategy.market === '*';
 
-        const relevantNews = newsArticles.filter((article: any) => 
-          article.title.toLowerCase().includes(strategy.market.replace('KRW-', '').toLowerCase())
-        );
+        // Helper to process a single market's news
+        const processMarket = async (marketCode: string) => {
+          try {
+            const query = marketCode.replace('KRW-', '');
+            const response = await fetch(`/api/news?query=${encodeURIComponent(query)}&language=ko`);
+            const newsArticles = await response.json();
 
-        if (relevantNews.length > 0) {
-          const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
-          const currentPrice = ticker.trade_price;
+            const relevantNews = Array.isArray(newsArticles)
+              ? newsArticles.filter((article: any) => article.title && article.title.toLowerCase().includes(query.toLowerCase()))
+              : [];
 
-          if (!currentPrice) {
-            console.error(`[${strategy.market}] 현재 가격을 가져올 수 없습니다.`);
-            return;
-          }
+            if (relevantNews.length === 0) return;
 
-          const hasPositiveNews = relevantNews.some((article: any) => article.sentiment === 'positive');
-          const hasNegativeNews = relevantNews.some((article: any) => article.sentiment === 'negative');
+            const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
+            const tickerForMarket = tickers.find(t => t.market === marketCode);
+            const currentPriceForMarket = tickerForMarket?.trade_price;
 
-          if (strategy.sentimentThreshold === 'positive' && hasPositiveNews) {
-            console.log(`[${strategy.market}] 호재 뉴스 감지! 매수 실행`);
-            const krwAmount = currentCash * 0.5;
-            if (krwAmount > 5000) {
-              const amountToBuy = krwAmount / currentPrice;
-              buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id, strategy.strategyType, true);
+            if (!currentPriceForMarket) {
+              console.error(`[${marketCode}] 현재 가격을 가져올 수 없습니다.`);
+              return;
             }
-          } else if (strategy.sentimentThreshold === 'negative' && hasNegativeNews) {
-            console.log(`[${strategy.market}] 악재 뉴스 감지! 매도 실행`);
-            const assetToSell = currentAssets.find(a => a.market === strategy.market);
-            if (assetToSell && assetToSell.quantity > 0) {
-              sellAsset(strategy.market, currentPrice, assetToSell.quantity * 0.5, strategy.id, strategy.strategyType, true);
+
+            const hasPositiveNews = relevantNews.some((article: any) => article.sentiment === 'positive');
+            const hasNegativeNews = relevantNews.some((article: any) => article.sentiment === 'negative');
+
+            // sentimentThreshold: 'positive' | 'negative' | 'both'
+            const threshold = (strategy as any).sentimentThreshold || 'positive';
+
+            if ((threshold === 'positive' || threshold === 'both') && hasPositiveNews) {
+              console.log(`[${marketCode}] 호재 뉴스 감지! 매수 실행`);
+              const krwAmount = currentCash * 0.5;
+              if (krwAmount > 5000) {
+                const amountToBuy = krwAmount / currentPriceForMarket;
+                buyAsset(marketCode, currentPriceForMarket, amountToBuy, strategy.id, strategy.strategyType, true);
+              }
             }
+
+            if ((threshold === 'negative' || threshold === 'both') && hasNegativeNews) {
+              console.log(`[${marketCode}] 악재 뉴스 감지! 매도 실행`);
+              const assetToSell = currentAssets.find(a => a.market === marketCode);
+              if (assetToSell && assetToSell.quantity > 0) {
+                sellAsset(marketCode, currentPriceForMarket, assetToSell.quantity * 0.5, strategy.id, strategy.strategyType, true);
+              }
+            }
+          } catch (err) {
+            console.error('News 전략 시장 처리 실패:', err);
           }
+        };
+
+        if (isGlobal) {
+          // iterate all tickers (throttle to avoid bursting the news API)
+          for (let i = 0; i < tickers.length; i++) {
+            const t = tickers[i];
+            // small delay to avoid calling the news API for all markets at once
+            // note: setTimeout inside loop would be non-blocking; use sequential await to keep it simple
+            // we keep it simple here and call sequentially
+            // skip markets that are not KRW pairs
+            if (!t.market.startsWith('KRW-')) continue;
+            // process each market sequentially
+            // eslint-disable-next-line no-await-in-loop
+            await processMarket(t.market);
+          }
+        } else {
+          // specific market
+          // eslint-disable-next-line no-await-in-loop
+          await processMarket(strategy.market);
         }
       } catch (error) { console.error('News 전략 실행 실패:', error); }
     } else if (strategy.strategyType === 'volatility') {

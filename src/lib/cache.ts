@@ -22,21 +22,35 @@ function initializeDatabase(database: Database.Database) {
     CREATE TABLE IF NOT EXISTS candle_cache (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       market TEXT NOT NULL,
+      interval TEXT NOT NULL DEFAULT 'day',
       candle_date_time_utc TEXT NOT NULL,
       opening_price REAL,
       high_price REAL,
       low_price REAL,
       trade_price REAL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE(market, candle_date_time_utc)
+      UNIQUE(market, interval, candle_date_time_utc)
     );
 
     CREATE INDEX IF NOT EXISTS idx_candle_market_time 
-      ON candle_cache(market, candle_date_time_utc);
+      ON candle_cache(market, interval, candle_date_time_utc);
     
     CREATE INDEX IF NOT EXISTS idx_candle_created 
       ON candle_cache(created_at);
   `);
+
+  // Check if 'interval' column exists and add it if it doesn't
+  const candleColumns: { name: string }[] = database.pragma('table_info(candle_cache)') as any;
+  if (!candleColumns.some(c => c.name === 'interval')) {
+    database.exec("ALTER TABLE candle_cache ADD COLUMN interval TEXT NOT NULL DEFAULT 'day'");
+    // Recreate unique index for backward compatibility
+    database.exec('DROP INDEX IF EXISTS idx_candle_market_time');
+    database.exec('DROP INDEX IF EXISTS candle_cache_market_candle_date_time_utc_unique'); // Old implicit index name
+    database.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_candle_market_interval_time 
+      ON candle_cache(market, interval, candle_date_time_utc)
+    `);
+  }
 
   // 뉴스 캐시 테이블
   database.exec(`
@@ -159,6 +173,7 @@ export interface NewsCacheData {
 export async function getCandlesWithCache(
   market: string,
   count: number,
+  interval: string = 'day', // e.g., 'day', 'minute240', 'minute60', 'minute30'
   cacheHours: number = 1
 ): Promise<CandleCacheData[]> {
   const database = getDatabase();
@@ -168,12 +183,11 @@ export async function getCandlesWithCache(
   const cached = database
     .prepare(`
       SELECT * FROM candle_cache
-      WHERE market = ? 
-      AND created_at > ?
+      WHERE market = ? AND interval = ? AND created_at > ?
       ORDER BY candle_date_time_utc DESC
       LIMIT ?
     `)
-    .all(market, cacheExpiry.toISOString(), count) as Array<{
+    .all(market, interval, cacheExpiry.toISOString(), count) as Array<{
     candle_date_time_utc: string;
     opening_price: number;
     high_price: number;
@@ -182,34 +196,45 @@ export async function getCandlesWithCache(
   }>;
 
   // 캐시에 충분한 데이터가 있으면 반환
-  if (cached.length >= count * 0.8) {
+  if (cached.length >= count * 0.9) {
     return cached.map(row => ({
       candle_date_time_utc: row.candle_date_time_utc,
       opening_price: row.opening_price,
       high_price: row.high_price,
       low_price: row.low_price,
       trade_price: row.trade_price,
-    }));
+    })).sort((a, b) => new Date(a.candle_date_time_utc).getTime() - new Date(b.candle_date_time_utc).getTime());
   }
 
-  // API에서 데이터 가져오기
-  const response = await fetch(`https://api.upbit.com/v1/candles/days?market=${market}&count=${count}`);
+  // API URL 동적 구성
+  let apiUrl = 'https://api.upbit.com/v1/candles/';
+  if (interval === 'day') {
+    apiUrl += `days?market=${market}&count=${count}`;
+  } else if (interval.startsWith('minute')) {
+    const unit = interval.replace('minute', '');
+    apiUrl += `minutes/${unit}?market=${market}&count=${count}`;
+  } else {
+    throw new Error(`Unsupported interval: ${interval}`);
+  }
+
+  const response = await fetch(apiUrl);
   if (!response.ok) {
-    throw new Error(`Upbit API request failed: ${response.status}`);
+    throw new Error(`Upbit API request failed: ${response.status} for URL: ${apiUrl}`);
   }
   const freshData: CandleCacheData[] = await response.json();
 
   // 캐시에 저장
   const stmt = database.prepare(`
-    INSERT OR REPLACE INTO candle_cache 
-    (market, candle_date_time_utc, opening_price, high_price, low_price, trade_price)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT OR IGNORE INTO candle_cache 
+    (market, interval, candle_date_time_utc, opening_price, high_price, low_price, trade_price)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
 
   const transaction = database.transaction(() => {
     for (const candle of freshData) {
       stmt.run(
         market,
+        interval,
         candle.candle_date_time_utc,
         candle.opening_price,
         candle.high_price,
@@ -221,7 +246,7 @@ export async function getCandlesWithCache(
 
   transaction();
 
-  return freshData;
+  return freshData.sort((a, b) => new Date(a.candle_date_time_utc).getTime() - new Date(b.candle_date_time_utc).getTime());
 }
 
 /**

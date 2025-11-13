@@ -59,6 +59,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
   const [rsiData, setRsiData] = useState<Array<{ time: string; rsi: number }>>([]);
   const [macdData, setMacdData] = useState<Array<{ time: string; macd: number; signal: number; histogram: number }>>([]);
   const [error, setError] = useState<string | null>(null);
+  const [interval, setInterval] = useState('day'); // 'day', 'minute240', 'minute60', 'minute30'
   const [indicators, setIndicators] = useState<IndicatorConfig>({
     sma: true,
     ema: false,
@@ -78,7 +79,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetch(`/api/candles?market=${market}&count=90`);
+        const response = await fetch(`/api/candles?market=${market}&count=90&interval=${interval}`);
         if (!response.ok) {
           throw new Error(`API error: ${response.status}`);
         }
@@ -109,9 +110,18 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           return;
         }
 
+        // 시간 포맷팅 함수
+        const formatTime = (utc: string) => {
+          const date = new Date(utc);
+          if (interval === 'day') {
+            return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+          }
+          return date.toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+        };
+
         // 기본 차트 데이터 준비
         const baseChartData: ChartDataPoint[] = validData.map(d => ({
-          time: new Date(d.candle_date_time_utc).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' }),
+          time: formatTime(d.candle_date_time_utc),
           open: d.opening_price,
           high: d.high_price,
           low: d.low_price,
@@ -205,7 +215,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
     };
 
     fetchChartData();
-  }, [market, indicators]);
+  }, [market, indicators, interval]);
 
   // 거래 마커 데이터 준비
   const marketTransactions = transactions.filter(tx => tx.market === market);
@@ -228,57 +238,77 @@ export default function ChartComponent({ market }: ChartComponentProps) {
     );
   }
 
+  const intervalButtons = [
+    { label: '일', value: 'day' },
+    { label: '4H', value: 'minute240' },
+    { label: '1H', value: 'minute60' },
+    { label: '30m', value: 'minute30' },
+  ];
+
   return (
     <div style={{ width: '100%', position: 'relative' }}>
-      <div style={{ marginBottom: '10px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-          <input
-            type="checkbox"
-            checked={indicators.sma}
-            onChange={(e) => setIndicators({ ...indicators, sma: e.target.checked })}
-          />
-          SMA(20)
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-          <input
-            type="checkbox"
-            checked={indicators.ema}
-            onChange={(e) => setIndicators({ ...indicators, ema: e.target.checked })}
-          />
-          EMA(12)
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-          <input
-            type="checkbox"
-            checked={indicators.bollinger}
-            onChange={(e) => setIndicators({ ...indicators, bollinger: e.target.checked })}
-          />
-          볼린저밴드
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-          <input
-            type="checkbox"
-            checked={indicators.rsi}
-            onChange={(e) => setIndicators({ ...indicators, rsi: e.target.checked })}
-          />
-          RSI
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-          <input
-            type="checkbox"
-            checked={indicators.macd}
-            onChange={(e) => setIndicators({ ...indicators, macd: e.target.checked })}
-          />
-          MACD
-        </label>
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-          <input
-            type="checkbox"
-            checked={showVolume}
-            onChange={(e) => setShowVolume(e.target.checked)}
-          />
-          거래량
-        </label>
+      <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+        <div style={{ display: 'flex', gap: '4px' }}>
+          {intervalButtons.map(btn => (
+            <button
+              key={btn.value}
+              onClick={() => setInterval(btn.value)}
+              className={`btn btn-sm ${interval === btn.value ? 'btn-primary' : ''}`}
+            >
+              {btn.label}
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={indicators.sma}
+              onChange={(e) => setIndicators({ ...indicators, sma: e.target.checked })}
+            />
+            SMA(20)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={indicators.ema}
+              onChange={(e) => setIndicators({ ...indicators, ema: e.target.checked })}
+            />
+            EMA(12)
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={indicators.bollinger}
+              onChange={(e) => setIndicators({ ...indicators, bollinger: e.target.checked })}
+            />
+            볼린저밴드
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={indicators.rsi}
+              onChange={(e) => setIndicators({ ...indicators, rsi: e.target.checked })}
+            />
+            RSI
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={indicators.macd}
+              onChange={(e) => setIndicators({ ...indicators, macd: e.target.checked })}
+            />
+            MACD
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
+            <input
+              type="checkbox"
+              checked={showVolume}
+              onChange={(e) => setShowVolume(e.target.checked)}
+            />
+            거래량
+          </label>
+        </div>
       </div>
 
       {/* 메인 캔들스틱 차트 */}
@@ -297,6 +327,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
             orientation="left"
             tick={{ fontSize: 12 }}
             domain={['auto', 'auto']}
+            tickFormatter={(value) => typeof value === 'number' ? value.toLocaleString() : value}
           />
           {showVolume && (
             <YAxis 
@@ -304,6 +335,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
               orientation="right"
               tick={{ fontSize: 12 }}
               domain={[0, 'auto']}
+              tickFormatter={(value) => typeof value === 'number' ? (value / 1000000).toFixed(1) + 'M' : value}
             />
           )}
           <Tooltip 
@@ -313,7 +345,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
               }
               return [value, name];
             }}
-            labelFormatter={(label) => `날짜: ${label}`}
+            labelFormatter={(label) => `시간: ${label}`}
           />
           <Legend />
           

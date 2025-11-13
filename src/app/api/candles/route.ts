@@ -5,14 +5,15 @@ export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
     const market = searchParams.get('market');
-    const count = parseInt(searchParams.get('count') || '30', 10);
+    const count = parseInt(searchParams.get('count') || '90', 10);
+    const interval = searchParams.get('interval') || 'day';
 
     if (!market) {
       return NextResponse.json({ error: 'Market parameter is required' }, { status: 400 });
     }
 
-    // 캐시를 사용하여 데이터 가져오기 (1시간 캐시)
-    const data = await getCandlesWithCache(market, count, 1);
+    // 캐시를 사용하여 데이터 가져오기
+    const data = await getCandlesWithCache(market, count, interval, 1);
     return NextResponse.json(data);
 
   } catch (error) {

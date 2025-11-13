@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { sendMessage } from './telegram';
 
 const dbPath = path.join(process.cwd(), 'crypto_cache.db');
 
@@ -48,7 +49,8 @@ function initializeDatabase(database: Database.Database) {
       published_at TEXT,
       sentiment TEXT,
       keywords TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      notified INTEGER DEFAULT 0
     );
 
     CREATE INDEX IF NOT EXISTS idx_news_published 
@@ -57,6 +59,12 @@ function initializeDatabase(database: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_news_created 
       ON news_cache(created_at);
   `);
+
+  // Check if 'notified' column exists and add it if it doesn't
+  const newsColumns: { name: string }[] = database.pragma('table_info(news_cache)') as any;
+  if (!newsColumns.some(c => c.name === 'notified')) {
+    database.exec('ALTER TABLE news_cache ADD COLUMN notified INTEGER DEFAULT 0');
+  }
 
   // 거래 분석 캐시 테이블
   database.exec(`
@@ -310,24 +318,59 @@ export async function getNewsWithCache(
     return 'neutral';
   };
 
-  // 캐시에 저장
+  // 캐시에 저장하고 알림 보내기
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO news_cache 
-    (title, description, url, source_name, published_at, sentiment)
-    VALUES (?, ?, ?, ?, ?, ?)
+    (title, description, url, source_name, published_at, sentiment, notified)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
   `);
+  const updateNotifiedStmt = database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?');
 
   const transaction = database.transaction(() => {
+    const siteUrl = process.env.SITE_URL || 'http://localhost:3000';
+
     for (const article of freshData) {
       const sentiment = analyzeSentiment(article.title, article.description);
-      stmt.run(
-        article.title,
-        article.description,
-        article.url,
-        article.source.name,
-        article.publishedAt,
-        sentiment
-      );
+      
+      // DB에 이미 존재하는지, 그리고 notified 상태인지 확인
+      const existing = database.prepare('SELECT notified FROM news_cache WHERE url = ?').get(article.url) as { notified: number } | undefined;
+
+      // 새롭고(존재하지 않거나), 아직 알림이 가지 않은(notified=0) 주요 뉴스인 경우 알림 전송
+      if ((!existing || existing.notified === 0) && (sentiment === 'positive' || sentiment === 'negative')) {
+        const sentimentText = sentiment === 'positive' ? '📢 호재' : '⚠️ 악재';
+        const message = `
+<b>${sentimentText} 뉴스 알림</b>
+-------------------------
+<b>제목:</b> ${article.title}
+<b>출처:</b> ${article.source.name}
+<b>요약:</b> ${article.description || 'N/A'}
+-------------------------
+<a href="${article.url}">원문 보기</a> | <a href="${siteUrl}">사이트 방문</a>
+        `;
+        sendMessage(message, 'HTML');
+        
+        // 알림 상태와 함께 저장
+        stmt.run(
+          article.title,
+          article.description,
+          article.url,
+          article.source.name,
+          article.publishedAt,
+          sentiment,
+          1 // notified = 1
+        );
+      } else {
+        // 그 외의 경우, 기존 notified 상태를 유지하며 저장
+        stmt.run(
+          article.title,
+          article.description,
+          article.url,
+          article.source.name,
+          article.publishedAt,
+          sentiment,
+          existing?.notified || 0
+        );
+      }
     }
   });
 

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
+import { sendMessage } from '@/lib/telegram';
 import { useData } from './DataProviderContext';
 import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
 
@@ -203,6 +204,25 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
     // Optimistic update
     setTransactions(prevTransactions => [newTransaction, ...prevTransactions]);
+
+    // Send Telegram notification
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    const typeText = type === 'buy' ? '📈 매수' : '📉 매도';
+    const marketName = market.replace('KRW-', '');
+    const totalCost = (price * amount).toLocaleString('ko-KR', { maximumFractionDigits: 0 });
+    
+    const message = `
+<b>🔔 신규 거래 알림</b>
+-------------------------
+<b>종류:</b> ${typeText}
+<b>종목:</b> ${marketName}
+<b>수량:</b> ${amount.toFixed(6)}
+<b>가격:</b> ${price.toLocaleString('ko-KR')} 원
+<b>총액:</b> ${totalCost} 원
+-------------------------
+<a href="${siteUrl}">사이트에서 확인하기</a>
+    `;
+    sendMessage(message, 'HTML');
 
     try {
       const response = await fetch('/api/transactions', {

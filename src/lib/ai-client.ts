@@ -13,6 +13,7 @@ export interface AIGenerationOptions {
 export interface AIClient {
   generate(prompt: string, options?: AIGenerationOptions): Promise<string>;
   isAvailable(): Promise<boolean>;
+  getTags(): Promise<string[] | null>;
 }
 
 /**
@@ -26,14 +27,23 @@ export class OllamaClient implements AIClient {
   }
 
   async isAvailable(): Promise<boolean> {
+    const tags = await this.getTags();
+    return tags !== null;
+  }
+
+  async getTags(): Promise<string[] | null> {
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
-        signal: AbortSignal.timeout(10000), // 10초 타임아웃
+        signal: AbortSignal.timeout(10000),
       });
-      return response.ok;
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      return data.models?.map((m: any) => m.name) || [];
     } catch (error) {
-      return false;
+      return null;
     }
   }
 

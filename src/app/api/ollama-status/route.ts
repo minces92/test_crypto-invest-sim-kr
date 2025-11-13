@@ -11,25 +11,14 @@ export async function GET() {
       );
     }
 
-    const isAvailable = await aiClient.isAvailable();
-    if (!isAvailable) {
+    const models = await aiClient.getTags();
+
+    if (models === null) {
       return NextResponse.json(
         { status: 'disconnected', error: 'Ollama service not available' },
         { status: 503 }
       );
     }
-
-    // Ollama is available, now get the tags
-    const response = await fetch(`${process.env.AI_BASE_URL}/api/tags`);
-    if (!response.ok) {
-      return NextResponse.json(
-        { status: 'disconnected', error: `Failed to fetch tags: HTTP ${response.status}` },
-        { status: 500 }
-      );
-    }
-
-    const data = await response.json();
-    const models = data.models?.map((m: any) => m.name) || [];
 
     return NextResponse.json({
       status: 'connected',

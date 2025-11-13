@@ -104,62 +104,38 @@ export function createAIClient(): AIClient | null {
  * AI 분석 결과 파싱 (JSON 형식)
  */
 export function parseAIResponse(response: string): any {
+  let jsonString = response.trim();
+
+  // 1. Try to extract content from markdown code blocks
+  const codeBlockMatch = jsonString.match(/```(?:json)?\s*([\s\S]+?)\s*```/);
+  if (codeBlockMatch) {
+    jsonString = codeBlockMatch[1];
+  } else {
+    // 2. If no code block, find the largest JSON object-like structure
+    const firstBrace = jsonString.indexOf('{');
+    const lastBrace = jsonString.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      jsonString = jsonString.substring(firstBrace, lastBrace + 1);
+    }
+  }
+
+  // 3. Clean up common JSON errors, like trailing commas
+  // This regex removes commas before a closing brace '}' or bracket ']'
+  jsonString = jsonString.replace(/,\s*([}\]])/g, '$1');
+
   try {
-    // 응답 문자열 정리
-    let cleanedResponse = response.trim();
-
-    // JSON 코드 블록 추출 (더 관대하게)
-    const jsonMatch = cleanedResponse.match(/```(?:json)?\s*([\s\S]*?)\s*```/i) || 
-                      cleanedResponse.match(/(\{[\s\S]*\})/);
-
-    if (jsonMatch) {
-      cleanedResponse = jsonMatch[1] || jsonMatch[0];
-    } else {
-      // 코드 블록이 없으면, 가장 큰 JSON 객체/배열을 찾으려고 시도
-      const firstBracket = cleanedResponse.indexOf('{');
-      const firstSquare = cleanedResponse.indexOf('[');
-      const lastBracket = cleanedResponse.lastIndexOf('}');
-      const lastSquare = cleanedResponse.lastIndexOf(']');
-
-      if (firstBracket !== -1 && lastBracket !== -1) {
-        cleanedResponse = cleanedResponse.substring(firstBracket, lastBracket + 1);
-      } else if (firstSquare !== -1 && lastSquare !== -1) {
-        cleanedResponse = cleanedResponse.substring(firstSquare, lastSquare + 1);
-      }
-    }
-
-    // 1. 후행 쉼표 제거 (배열 및 객체)
-    cleanedResponse = cleanedResponse.replace(/,(\s*[}\]])/g, '$1');
-
-    // 2. 키를 큰따옴표로 묶기
-    cleanedResponse = cleanedResponse.replace(/([{,])(\s*)([a-zA-Z0-9_]+)(\s*):/g, '$1"$3":');
-
-    // 3. 값의 작은따옴표를 큰따옴표로 바꾸기 (주의: 문자열 내의 작은따옴표는 유지)
-    cleanedResponse = cleanedResponse.replace(/:'([^']*)'/g, ':"$1"');
-
-    try {
-      return JSON.parse(cleanedResponse);
-    } catch (e) {
-      // 파싱 실패 시, 수동으로 주요 필드 추출 시도
-      console.warn('Advanced JSON parsing failed, attempting manual extraction:', e);
-      const trendMatch = cleanedResponse.match(/"trend"\s*:\s*"(.*?)"/);
-      const recommendationMatch = cleanedResponse.match(/"recommendation"\s*:\s*"(.*?)"/);
-      const reasoningMatch = cleanedResponse.match(/"reasoning"\s*:\s*"(.*?)"/);
-
-      if (trendMatch && recommendationMatch && reasoningMatch) {
-        return {
-          trend: trendMatch[1],
-          recommendation: recommendationMatch[1],
-          reasoning: reasoningMatch[1],
-          error: 'Manual extraction'
-        };
-      }
-
-      throw e; // 수동 추출도 실패하면 에러 던지기
-    }
+    // 4. Attempt to parse the cleaned string
+    return JSON.parse(jsonString);
   } catch (error) {
-    console.error('Failed to parse AI response as JSON:', error);
-    return { raw: response, error: 'Parsing failed' };
+    console.error('Failed to parse AI response as JSON. The cleaned string was:', jsonString);
+    console.error('Original parsing error:', error);
+    
+    // 5. If parsing still fails, return an object indicating failure
+    return { 
+      raw: response, 
+      error: 'Parsing failed after cleanup',
+      details: error instanceof Error ? error.message : String(error)
+    };
   }
 }
 

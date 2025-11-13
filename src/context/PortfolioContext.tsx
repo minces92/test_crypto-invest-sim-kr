@@ -90,7 +90,7 @@ interface PortfolioContextType {
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
-const INITIAL_CASH = 100000;
+const INITIAL_CASH = 1000000; // 기본 원금: 1,000,000 KRW
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);

@@ -4,6 +4,7 @@ import "@primer/css/dist/primer.css";
 import "./globals.css";
 import { DataProvider } from "@/context/DataProviderContext";
 import { PortfolioProvider } from "@/context/PortfolioContext";
+import { NewsProvider } from "@/context/NewsContext";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -21,7 +22,9 @@ export default function RootLayout({
     <html lang="en" data-color-mode="dark">
       <body className={inter.className}>
         <DataProvider>
-          <PortfolioProvider>{children}</PortfolioProvider>
+          <NewsProvider>
+            <PortfolioProvider>{children}</PortfolioProvider>
+          </NewsProvider>
         </DataProvider>
       </body>
     </html>

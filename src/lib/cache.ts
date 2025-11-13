@@ -179,6 +179,12 @@ export async function getCandlesWithCache(
   const database = getDatabase();
   const cacheExpiry = new Date(Date.now() - cacheHours * 60 * 60 * 1000);
 
+  // Normalize interval: guard against literal 'undefined' or empty strings coming from query params
+  if (!interval || interval === 'undefined' || (typeof interval === 'string' && interval.trim() === '')) {
+    console.warn('[cache] getCandlesWithCache received invalid interval, defaulting to "day"', { market, count, interval });
+    interval = 'day';
+  }
+
   // 캐시에서 최근 데이터 확인
   const cached = database
     .prepare(`
@@ -210,11 +216,18 @@ export async function getCandlesWithCache(
   let apiUrl = 'https://api.upbit.com/v1/candles/';
   if (interval === 'day') {
     apiUrl += `days?market=${market}&count=${count}`;
-  } else if (interval.startsWith('minute')) {
+  } else if (typeof interval === 'string' && interval.startsWith('minute')) {
     const unit = interval.replace('minute', '');
+    // unit should be numeric (e.g., minute60 -> '60')
+    if (!/^[0-9]+$/.test(unit)) {
+      console.error('[cache] getCandlesWithCache invalid minute unit', { market, interval });
+      throw new Error(`Unsupported minute interval format: ${interval}`);
+    }
     apiUrl += `minutes/${unit}?market=${market}&count=${count}`;
   } else {
-    throw new Error(`Unsupported interval: ${interval}`);
+    const supported = ['day', 'minute1', 'minute3', 'minute5', 'minute10', 'minute15', 'minute30', 'minute60', 'minute240'];
+    console.error('[cache] getCandlesWithCache unsupported interval', { market, interval, supported });
+    throw new Error(`Unsupported interval: ${interval}. Supported: ${supported.join(', ')}`);
   }
 
   const response = await fetch(apiUrl);

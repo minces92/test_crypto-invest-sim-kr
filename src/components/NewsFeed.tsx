@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useNews } from '@/context/NewsContext';
 
 interface Article {
   title: string;
@@ -12,33 +12,7 @@ interface Article {
 }
 
 export default function NewsFeed() {
-  const [news, setNews] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchNews = async (forceRefresh: boolean = false) => {
-      setLoading(true);
-      try {
-        const url = forceRefresh ? '/api/news?refresh=true' : '/api/news';
-        const response = await fetch(url);
-        if (!response.ok) {
-          throw new Error('Failed to fetch news from server');
-        }
-        const data: Article[] = await response.json();
-        setNews(data);
-        setError(null);
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
-        setError(errorMessage);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    // 초기 로드
-    fetchNews(false);
-  }, []);
+  const { news, loading, error, fetchNews } = useNews();
 
   const getSentimentColor = (sentiment: Article['sentiment']) => {
     switch (sentiment) {
@@ -50,14 +24,21 @@ export default function NewsFeed() {
 
   return (
     <div className="Box mt-4 border">
-      <div className="Box-header">
+      <div className="Box-header d-flex flex-justify-between flex-items-center">
         <h2 className="Box-title">암호화폐 뉴스</h2>
+        <button 
+          className="btn btn-sm" 
+          onClick={() => fetchNews(true)}
+          disabled={loading}
+        >
+          {loading ? '갱신 중...' : '새로고침'}
+        </button>
       </div>
       <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-        {loading && <p className="text-center p-3">뉴스 로딩 중...</p>}
+        {loading && news.length === 0 && <p className="text-center p-3">뉴스 로딩 중...</p>}
         {error && <p className="text-center color-fg-danger p-3">뉴스를 불러오는 데 실패했습니다: {error}</p>}
         {!loading && !error && news.length === 0 && <p className="text-center color-fg-muted p-3">표시할 뉴스가 없습니다.</p>}
-        {!loading && !error && news.length > 0 && (
+        {news.length > 0 && (
           <ul className="list-style-none p-0 m-0">
             {news.map((article, index) => (
               <li key={index} className="py-2 border-bottom">

@@ -6,14 +6,20 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url);
     const market = searchParams.get('market');
     const count = parseInt(searchParams.get('count') || '90', 10);
-    const interval = searchParams.get('interval') || 'day';
+    // Normalize interval: clients may send the literal string 'undefined' or empty values
+    let intervalRaw = searchParams.get('interval');
+    let interval = 'day';
+    if (intervalRaw && intervalRaw !== 'undefined' && intervalRaw.trim() !== '') {
+      interval = intervalRaw;
+    }
 
     if (!market) {
       return NextResponse.json({ error: 'Market parameter is required' }, { status: 400 });
     }
 
-    // 캐시를 사용하여 데이터 가져오기
-    const data = await getCandlesWithCache(market, count, interval, 1);
+  // 캐시를 사용하여 데이터 가져오기
+  console.log('[API] GET /api/candles', { market, count, interval });
+  const data = await getCandlesWithCache(market, count, interval, 1);
     return NextResponse.json(data);
 
   } catch (error) {

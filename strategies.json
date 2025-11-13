@@ -1,49 +1,57 @@
 [
   {
-    "strategyType": "ma",
+    "strategyType": "dca",
     "market": "KRW-BTC",
-    "shortPeriod": 5,
-    "longPeriod": 20,
-    "id": "2025-11-05T08:25:26.619Z0.6588992450974617",
+    "amount": 50000,
+    "interval": "daily",
+    "name": "안정적인 비트코인 적립식",
+    "description": "매일 5만원씩 비트코인을 꾸준히 매수하여 장기적인 자산 증식을 목표로 합니다.",
+    "id": "2025-11-13T05:14:05.456Z0.3955784448528956",
+    "isActive": true
+  },
+  {
+    "strategyType": "momentum",
+    "market": "KRW-DOGE",
+    "period": 12,
+    "threshold": 5,
+    "name": "도지코인 변동성 돌파",
+    "description": "최근 가격 변동성이 커질 때 매수하여 단기적인 가격 급등을 포착하는 전략입니다. 위험성이 높습니다.",
+    "id": "2025-11-13T05:14:06.131Z0.1293551123711547",
+    "isActive": true
+  },
+  {
+    "strategyType": "ma",
+    "market": "KRW-ETH",
+    "shortPeriod": 10,
+    "longPeriod": 30,
+    "name": "이더리움 골든크로스",
+    "description": "단기 이동평균선이 장기 이동평균선을 상향 돌파할 때 매수하여 추세 상승장에서 수익을 얻는 전략입니다.",
+    "id": "2025-11-13T05:14:07.107Z0.73975264710592",
     "isActive": true
   },
   {
     "strategyType": "rsi",
-    "market": "KRW-BTC",
+    "market": "KRW-SOL",
     "period": 14,
     "buyThreshold": 30,
     "sellThreshold": 70,
-    "id": "2025-11-05T08:25:30.489Z0.463710673961543",
-    "isActive": true
-  },
-  {
-    "strategyType": "bband",
-    "market": "KRW-BTC",
-    "period": 20,
-    "multiplier": 2,
-    "id": "2025-11-05T08:25:33.864Z0.6781400701635576",
+    "name": "솔라나 과매도/과매수",
+    "description": "RSI 지표를 활용하여 과매도 구간(30 이하)에서 매수하고 과매수 구간(70 이상)에서 매도하는 단기 트레이딩 전략입니다.",
+    "id": "2025-11-13T05:14:07.820Z0.29314039250032586",
     "isActive": true
   },
   {
     "strategyType": "news",
     "market": "KRW-BTC",
-    "sentimentThreshold": "positive",
-    "id": "2025-11-06T00:49:35.044Z0.8359999203490596",
+    "sentimentThreshold": "negative",
+    "id": "2025-11-13T05:22:40.482Z0.7709455097251842",
     "isActive": true
   },
   {
-    "strategyType": "volatility",
-    "market": "KRW-BTC",
-    "multiplier": 0.5,
-    "id": "2025-11-06T02:12:33.118Z0.22621238242663178",
-    "isActive": true
-  },
-  {
-    "strategyType": "momentum",
-    "market": "KRW-BTC",
-    "period": 10,
-    "threshold": 5,
-    "id": "2025-11-06T02:12:35.795Z0.19979935043426233",
+    "strategyType": "news",
+    "market": "KRW-SOL",
+    "sentimentThreshold": "negative",
+    "id": "2025-11-13T05:22:44.802Z0.6424568949437761",
     "isActive": true
   }
 ]

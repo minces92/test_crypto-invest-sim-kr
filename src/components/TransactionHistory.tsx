@@ -241,7 +241,8 @@ export default function TransactionHistory() {
                            tx.strategyType === 'news' ? '뉴스기반' :
                            tx.strategyType === 'volatility' ? '변동성돌파' :
                            tx.strategyType === 'momentum' ? '모멘텀' :
-                           tx.strategyType === 'manual' ? '수동 구매' :
+                           // 수동 거래일 때는 매수/매도에 따라 라벨을 다르게 보여줍니다
+                           tx.strategyType === 'manual' ? (tx.type === 'buy' ? '수동 구매' : '수동 판매') :
                            tx.strategyType}
                         </span>
                       )}

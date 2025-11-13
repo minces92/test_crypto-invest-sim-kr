@@ -134,24 +134,9 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
-    const fetchAndCacheNews = async () => {
-      try {
-        console.log('Background fetching news...');
-        await fetch('/api/news?refresh=true');
-      } catch (error) {
-        console.error('Error in background news fetch:', error);
-      }
-    };
-
     fetchTransactions();
     fetchStrategies();
-    fetchAndCacheNews(); // Initial fetch
 
-    const newsInterval = setInterval(fetchAndCacheNews, 15 * 60 * 1000); // Fetch every 15 minutes
-
-    return () => {
-      clearInterval(newsInterval);
-    };
   }, []);
 
   const getPortfolioState = (currentTransactions: Transaction[]) => {
@@ -248,16 +233,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     }
 
     if (currentCash < cost) {
-      // 현금이 부족할 경우, 가능한 최대 금액만큼만 매수
-      const availableAmount = currentCash / price;
-      if (currentCash >= 5000) {
-        console.warn(`[${market}] 현금이 부족하여 매수 수량을 조정합니다. (${amount.toFixed(4)} -> ${availableAmount.toFixed(4)})`);
-        addTransaction('buy', market, price, availableAmount, source, strategyType, isAuto);
-        return true;
-      } else {
-        console.error(`[${market}] 현금이 부족하여 매수할 수 없습니다. (필요: ${cost.toLocaleString()}원, 보유: ${currentCash.toLocaleString()}원)`);
-        return false;
-      }
+      console.error(`[${market}] 현금이 부족하여 매수할 수 없습니다. (필요: ${cost.toLocaleString()}원, 보유: ${currentCash.toLocaleString()}원)`);
+      return false;
     }
     
     addTransaction('buy', market, price, amount, source, strategyType, isAuto);

@@ -19,11 +19,13 @@ const DataProviderContext = createContext<DataProviderContextType | undefined>(u
 
 const ALL_MARKETS = [
   'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA', 
-  'KRW-AVAX', 'KRW-DOT', 'KRW-MATIC', 'KRW-TRX', 'KRW-SHIB', 'KRW-ETC', 
+  'KRW-AVAX', 'KRW-DOT', 'KRW-POL', 'KRW-TRX', 'KRW-SHIB', 'KRW-ETC', 
   'KRW-BCH', 'KRW-LINK'
 ];
 
-const REFRESH_INTERVAL = 5000; // 5 seconds
+const REFRESH_INTERVAL = process.env.NEXT_PUBLIC_REFRESH_INTERVAL 
+  ? parseInt(process.env.NEXT_PUBLIC_REFRESH_INTERVAL, 10) 
+  : 5000;
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
   const [tickers, setTickers] = useState<Ticker[]>([]);

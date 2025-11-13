@@ -232,25 +232,33 @@ export async function getNewsWithCache(
   const database = getDatabase();
   const cacheExpiry = new Date(Date.now() - cacheHours * 60 * 60 * 1000);
 
+  // API 키 확인
+  const NEWS_API_KEY = process.env.NEWS_API_KEY;
+  if (!NEWS_API_KEY) {
+    console.error("NEWS_API_KEY is not configured in environment variables. News fetching is disabled.");
+    // 키가 없으면 캐시된 데이터라도 보여주되, 강제 갱신 시에는 빈 배열을 반환하여 UI에 상태를 반영
+    if (forceRefresh) return [];
+    
+    const fallbackCached = database
+      .prepare('SELECT * FROM news_cache ORDER BY published_at DESC LIMIT 50')
+      .all() as any[];
+    
+    return fallbackCached.map(row => ({
+      title: row.title,
+      description: row.description,
+      url: row.url,
+      source: { name: row.source_name },
+      publishedAt: row.published_at,
+      sentiment: row.sentiment || 'neutral',
+    }));
+  }
+
   // 강제 갱신이 아니면 캐시 확인
   if (!forceRefresh) {
     const cached = database
-      .prepare(`
-        SELECT * FROM news_cache
-        WHERE created_at > ?
-        ORDER BY published_at DESC
-        LIMIT 50
-      `)
-      .all(cacheExpiry.toISOString()) as Array<{
-      title: string;
-      description: string | null;
-      url: string;
-      source_name: string;
-      published_at: string;
-      sentiment: string | null;
-    }>;
+      .prepare('SELECT * FROM news_cache WHERE created_at > ? ORDER BY published_at DESC LIMIT 50')
+      .all(cacheExpiry.toISOString()) as any[];
 
-    // 캐시에 충분한 데이터가 있으면 반환 (최소 5개 이상)
     if (cached.length >= 5) {
       return cached.map(row => ({
         title: row.title,
@@ -258,74 +266,31 @@ export async function getNewsWithCache(
         url: row.url,
         source: { name: row.source_name },
         publishedAt: row.published_at,
-        sentiment: row.sentiment || undefined,
+        sentiment: row.sentiment || 'neutral',
       }));
     }
   }
 
-  // API에서 데이터 가져오기 (NewsAPI 사용)
-  const NEWS_API_KEY = process.env.NEWS_API_KEY;
-  if (!NEWS_API_KEY) {
-    // 캐시된 데이터가 있으면 반환, 없으면 빈 배열
-    const fallbackCached = database
-      .prepare(`
-        SELECT * FROM news_cache
-        ORDER BY published_at DESC
-        LIMIT 50
-      `)
-      .all() as Array<{
-      title: string;
-      description: string | null;
-      url: string;
-      source_name: string;
-      published_at: string;
-      sentiment: string | null;
-    }>;
-    
-    return fallbackCached.map(row => ({
-      title: row.title,
-      description: row.description,
-      url: row.url,
-      source: { name: row.source_name },
-      publishedAt: row.published_at,
-      sentiment: row.sentiment || undefined,
-    }));
-  }
-
+  // API에서 데이터 가져오기
   const response = await fetch(
     `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=${language}&sortBy=publishedAt&apiKey=${NEWS_API_KEY}`
   );
 
   if (!response.ok) {
-    // 캐시된 데이터가 있으면 반환, 없으면 빈 배열
-    const fallbackCached = database
-      .prepare(`
-        SELECT * FROM news_cache
-        ORDER BY published_at DESC
-        LIMIT 50
-      `)
-      .all() as Array<{
-      title: string;
-      description: string | null;
-      url: string;
-      source_name: string;
-      published_at: string;
-      sentiment: string | null;
-    }>;
-    
-    return fallbackCached.map(row => ({
-      title: row.title,
-      description: row.description,
-      url: row.url,
-      source: { name: row.source_name },
-      publishedAt: row.published_at,
-      sentiment: row.sentiment || undefined,
-    }));
+    const errorBody = await response.text();
+    console.error(`NewsAPI request failed: ${response.status}`, errorBody);
+    // API 실패 시, 에러를 던져서 호출 측에서 처리하도록 함
+    throw new Error(`NewsAPI request failed with status ${response.status}`);
   }
 
   const data = await response.json();
   const freshData: NewsCacheData[] = data.articles || [];
 
+  if (freshData.length === 0) {
+    // 새 뉴스가 없으면 빈 배열 반환 (오래된 캐시를 저장하지 않음)
+    return [];
+  }
+  
   // 감성 분석 (간단한 키워드 기반)
   const analyzeSentiment = (title: string, description: string | null): string => {
     const text = (title + ' ' + (description || '')).toLowerCase();

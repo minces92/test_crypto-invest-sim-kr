@@ -177,7 +177,13 @@ export default function TransactionHistory() {
       </div>
       <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
         {transactions.length === 0 ? (
-          <p className="text-center color-fg-muted p-3">거래 내역이 없습니다.</p>
+          <div className="text-center p-3">
+            <p className="color-fg-muted">거래 내역이 없습니다.</p>
+            <p className="color-fg-subtle text-small mt-2">
+              '자동 매매' 탭에서 투자 전략을 추가하거나, <br />
+              코인 목록에서 직접 '매수'/'매도'를 실행하여 거래를 시작할 수 있습니다.
+            </p>
+          </div>
         ) : (
           <table className="Table Table--small">
             <thead className="color-bg-subtle">

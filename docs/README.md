@@ -1,14 +1,41 @@
-# 프로젝트 문서
+# Crypto Invest Sim Documentation
 
-이 디렉토리는 `crypto-invest-sim-kr` 프로젝트의 공식 문서를 관리합니다.
+Welcome to the official documentation for the `crypto-invest-sim-kr` project. This directory contains all the necessary information regarding the project's features, architecture, and configuration.
 
-Spec-Driven Development (SDD) 원칙에 따라, 이 문서들은 프로젝트의 기능과 아키텍처에 대한 단일 진실 공급원(Single Source of Truth) 역할을 합니다.
+## Features
 
-## 문서 구조
+This project is a cryptocurrency investment simulator with the following key features:
 
-- **/api**: 백엔드 API 엔드포인트에 대한 명세입니다.
-- **/components**: 프론트엔드 React 컴포넌트에 대한 설명 및 사용법입니다. (작성 예정)
+- **Real-time Data**: Fetches and displays real-time ticker information for major cryptocurrencies.
+- **Portfolio Management**: Tracks cash, assets, and transaction history.
+- **Auto-Trading Strategies**: Supports various automated trading strategies like DCA, RSI, and more.
+- **AI-Powered Analysis**: Utilizes an AI backend (Ollama) to analyze trades and market conditions.
+- **Interactive Charts**: Provides detailed charts with selectable time intervals and technical indicators.
+- **Real-time Notifications**: Sends alerts for new trades and significant news via Telegram.
 
-## 시작하기
+## Configuration & Guides
 
-새로운 기능을 추가하거나 기존 기능을 수정할 때는 관련된 문서를 먼저 읽고, 변경 사항이 있다면 문서를 먼저 업데이트하는 것을 권장합니다.
+Detailed guides for configuring and using specific features are available:
+
+- **[Performance Tuning](./performance-tuning.md)**: Learn how to adjust the application's data refresh rate for your system.
+- **[Telegram Notifications](./notifications.md)**: A step-by-step guide to setting up real-time alerts for trades and news.
+- **[Ollama AI Setup](./ollama-installation-guide.md)**: Instructions for setting up the Ollama AI backend for analysis features.
+
+## API Reference
+
+The backend API provides endpoints for fetching data and managing the simulation.
+
+- **[Tickers](./api/tickers.md)**: Fetches real-time price data.
+- **[Candles](./api/candles.md)**: Provides chart data for different time intervals.
+- **[Transactions](./api/transactions.md)**: Manages the transaction history.
+- **[Strategies](./api/strategies.md)**: Manages auto-trading strategies.
+- **[AI Analysis](./api/analyze-trade.md)**: Endpoints for AI-powered analysis.
+
+## Component Library
+
+(This section is a work in progress and will be updated with details about the frontend components.)
+
+- **[ChartComponent](./components/ChartComponent.md)**
+- **[AutoTrader](./components/AutoTrader.md)**
+- **[Portfolio](./components/Portfolio.md)**
+- **[TransactionHistory](./components/TransactionHistory.md)**

@@ -783,6 +783,24 @@ export async function resendFailedNotifications(limit = 20) {
 
   for (const r of rows) {
     try {
+      // If this notification is tied to a transaction that is already marked notified, skip
+      if (r.transaction_id) {
+        const tx = database.prepare('SELECT notification_sent FROM transactions WHERE id = ?').get(r.transaction_id) as { notification_sent?: number } | undefined;
+        if (tx && tx.notification_sent === 1) {
+          // Insert a success log to record that we skipped because transaction already notified
+          logNotificationAttempt({
+            transactionId: r.transaction_id,
+            sourceType: r.source_type,
+            channel: r.channel,
+            payload: r.payload,
+            success: true,
+            responseCode: 200,
+            responseBody: 'skipped_already_notified',
+          });
+          continue;
+        }
+      }
+
       const sent = await telegram.sendMessage(r.payload, 'HTML');
       logNotificationAttempt({
         transactionId: r.transaction_id,
@@ -836,8 +854,8 @@ export function saveTransaction(transaction: {
   const database = getDatabase();
   const stmt = database.prepare(`
     INSERT OR REPLACE INTO transactions 
-    (id, type, market, price, amount, timestamp, source, is_auto, strategy_type)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (id, type, market, price, amount, timestamp, source, is_auto, strategy_type, notification_sent)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // source가 'manual'이면 isAuto = 0, 그 외는 1

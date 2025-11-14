@@ -305,6 +305,15 @@ body {
   color: var(--color-danger-fg) !important;
 }
 
+/* Profit / Loss semantic colors */
+.color-fg-profit {
+  color: var(--color-danger-fg) !important; /* profit is red */
+}
+
+.color-fg-loss {
+  color: #87CEEB !important; /* sky-blue for losses */
+}
+
 hr {
   border: 0;
   border-top: 1px solid var(--color-border-default);

@@ -68,7 +68,7 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
                     </div>
                     <div className="text-right">
                       <strong className="f5">{currentValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</strong> <br />
-                      <small className="text-small" style={{ color: profitLoss >= 0 ? 'red' : '#87CEEB' }}>
+                      <small className={`text-small ${profitLoss >= 0 ? 'color-fg-profit' : 'color-fg-loss'}`}>
                         {profitLoss.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원 ({profitLossRate.toFixed(2)}%)
                       </small>
                     </div>

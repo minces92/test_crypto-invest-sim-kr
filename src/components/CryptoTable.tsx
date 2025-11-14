@@ -57,7 +57,7 @@ export default function CryptoTable({ handleOpenModal }: CryptoTableProps) {
               <tr key={ticker.market}>
                 <td>{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')})</td>
                 <td>{ticker.trade_price.toLocaleString('ko-KR')}</td>
-                <td className={ticker.signed_change_rate >= 0 ? 'color-fg-success' : 'color-fg-danger'}>
+                <td className={ticker.signed_change_rate >= 0 ? 'color-fg-profit' : 'color-fg-loss'}>
                   {(ticker.signed_change_rate * 100).toFixed(2)}%
                 </td>
                 <td><button className="btn btn-primary btn-sm" onClick={() => handleOpenModal(ticker, 'buy')}>거래</button></td>

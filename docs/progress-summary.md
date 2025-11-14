@@ -1,5 +1,18 @@
 # 개발 진행 상황 요약
 
+## 최근 변경 사항 (2025-11-14)
+
+다음 항목들이 프로젝트에 적용되어 문서와 코드에 반영되어 있습니다:
+
+- 텔레그램 알림 신뢰성 개선: 서버측 텔레그램 전송 중앙화, 재시도 로직(임시 오류에 대해 최대 재시도), 디버그 엔드포인트(`/api/test-telegram`).
+- 알림 로깅 및 재전송 시스템: `notification_log` 테이블 추가(message_hash, attempt_number, next_retry_at 포함), `logNotificationAttempt` 함수, `resendFailedNotifications` 배치 작업(중복 방지 및 최대 재시도 적용).
+- 수동 재전송 기능: `POST /api/notification-logs/retry` 및 UI(`src/components/NotificationLogs.tsx`)에 재전송 버튼 추가.
+- 초기 자본 설정: `INITIAL_CASH = 1,000,000` (KRW)로 조정 (`src/context/PortfolioContext.tsx`).
+- 글로벌 뉴스 전략 추가: 마켓 `ALL`을 스캔하는 뉴스 기반 전략이 추가되어 전 코인 대상 뉴스 트리거를 지원합니다.
+- UI 색상 통일: 손실 색상을 스카이블루(`#87CEEB`)로 정의하는 `.color-fg-loss`와 수익(레드)용 `.color-fg-profit`를 `src/app/globals.css`에 추가했습니다. 실시간 시세 테이블(`src/components/CryptoTable.tsx`)은 이미 새 클래스 사용으로 변경되었습니다.
+
+각 항목의 상세 위치와 검증 방법은 본 문서 아래 섹션을 참고하세요.
+
 ## 완료된 작업 ✅
 
 ### 1. 차트 고도화

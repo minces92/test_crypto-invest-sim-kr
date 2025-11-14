@@ -210,7 +210,8 @@ function initializeDatabase(database: Database.Database) {
       attempt_number INTEGER DEFAULT 1,
       response_code INTEGER,
       response_body TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        next_retry_at TIMESTAMP NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_notification_transaction_id
@@ -746,9 +747,12 @@ export function getNotificationLogs(limit: number = 100) {
     channel: r.channel,
     payload: r.payload,
     success: r.success === 1,
+    attemptNumber: r.attempt_number,
+    messageHash: r.message_hash,
     responseCode: r.response_code,
     responseBody: r.response_body,
     createdAt: r.created_at,
+    nextRetryAt: r.next_retry_at,
     // createdAt in KST for convenience
     createdAtKst: new Date(r.created_at + 'Z').toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
   }));

@@ -10,6 +10,7 @@ import React, { useEffect, useState } from 'react';
   success: boolean;
   responseCode?: number | null;
   responseBody?: string | null;
+  attemptNumber?: number;
   createdAt: string;
     createdAtKst?: string;
 }
@@ -56,7 +57,27 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
               </div>
               <div style={{ fontSize: 14 }}>{l.transactionId ? `TX: ${l.transactionId}` : ''}</div>
               <div style={{ fontSize: 12, color: '#333', whiteSpace: 'pre-wrap', marginTop: 6 }}>{l.payload?.slice(0, 200)}</div>
-              <div style={{ fontSize: 12, color: '#777', marginTop: 6 }}>resp: {l.responseCode} {l.responseBody ? `| ${l.responseBody.slice(0, 100)}` : ''}</div>
+              <div style={{ fontSize: 12, color: '#777', marginTop: 6 }}>resp: {l.responseCode} {l.responseBody ? `| ${l.responseBody.slice(0, 100)}` : ''} {l.attemptNumber ? `| 시도: ${l.attemptNumber}` : ''}</div>
+              <div style={{ marginTop: 6 }}>
+                <button className="btn" onClick={async () => {
+                  try {
+                    const res = await fetch('/api/notification-logs/retry', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ id: l.id }),
+                    });
+                    const data = await res.json();
+                    if (data.ok) {
+                      // refresh logs
+                      fetchLogs();
+                    } else {
+                      console.error('Retry failed', data);
+                    }
+                  } catch (err) {
+                    console.error('Retry request error', err);
+                  }
+                }}>재전송</button>
+              </div>
             </li>
           ))}
         </ul>

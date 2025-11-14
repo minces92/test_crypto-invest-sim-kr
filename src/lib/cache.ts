@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';
 import { sendMessage } from './telegram';
@@ -204,7 +205,9 @@ function initializeDatabase(database: Database.Database) {
       source_type TEXT,
       channel TEXT,
       payload TEXT,
+      message_hash TEXT,
       success INTEGER,
+      attempt_number INTEGER DEFAULT 1,
       response_code INTEGER,
       response_body TEXT,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -519,12 +522,12 @@ export async function getNewsWithCache(
       try {
         const telegram = await import('./telegram');
         const sent = await telegram.sendMessage(item.message, 'HTML');
-
         logNotificationAttempt({
           transactionId: null,
           sourceType: 'news',
           channel: 'telegram',
           payload: item.message,
+          attemptNumber: 1,
           success: !!sent,
           responseCode: sent ? 200 : 0,
           responseBody: sent ? 'ok' : 'failed',
@@ -542,6 +545,7 @@ export async function getNewsWithCache(
           sourceType: 'news',
           channel: 'telegram',
           payload: item.message,
+          attemptNumber: 1,
           success: false,
           responseCode: null,
           responseBody: err instanceof Error ? err.message : String(err),
@@ -698,26 +702,31 @@ export function logNotificationAttempt(args: {
   channel: string; // e.g., 'telegram'
   payload: string; // message body (truncated if needed)
   success: boolean;
+  attemptNumber?: number;
   responseCode?: number | null;
   responseBody?: string | null;
 }) {
   const database = getDatabase();
   const stmt = database.prepare(`
     INSERT INTO notification_log
-    (transaction_id, source_type, channel, payload, success, response_code, response_body)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (transaction_id, source_type, channel, payload, message_hash, attempt_number, success, response_code, response_body)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Truncate payload/responseBody to reasonable size to avoid DB bloat
   const maxLen = 2000;
   const payloadStr = args.payload ? String(args.payload).slice(0, maxLen) : null;
   const responseBodyStr = args.responseBody ? String(args.responseBody).slice(0, maxLen) : null;
+  const msgHash = payloadStr ? crypto.createHash('sha256').update(payloadStr).digest('hex') : null;
+  const attemptNumber = args.attemptNumber && args.attemptNumber > 0 ? args.attemptNumber : 1;
 
   stmt.run(
     args.transactionId || null,
     args.sourceType,
     args.channel,
     payloadStr,
+    msgHash,
+    attemptNumber,
     args.success ? 1 : 0,
     args.responseCode || null,
     responseBodyStr || null
@@ -793,6 +802,7 @@ export async function resendFailedNotifications(limit = 20) {
             sourceType: r.source_type,
             channel: r.channel,
             payload: r.payload,
+            attemptNumber: 1,
             success: true,
             responseCode: 200,
             responseBody: 'skipped_already_notified',
@@ -800,13 +810,42 @@ export async function resendFailedNotifications(limit = 20) {
           continue;
         }
       }
+      // compute message hash for this payload
+      const payloadStr = r.payload ? String(r.payload).slice(0, 2000) : null;
+      const msgHash = payloadStr ? crypto.createHash('sha256').update(payloadStr).digest('hex') : null;
+
+      // determine previous attempts for this message_hash
+      let prevAttempt = 0;
+      if (msgHash) {
+        const row = database.prepare('SELECT MAX(attempt_number) as maxAttempt FROM notification_log WHERE message_hash = ?').get(msgHash) as { maxAttempt?: number } | undefined;
+        prevAttempt = row && row.maxAttempt ? Number(row.maxAttempt) : 0;
+      }
+
+      const nextAttempt = prevAttempt + 1;
+      const MAX_RETRIES = 5;
+      if (nextAttempt > MAX_RETRIES) {
+        // give up and write a final failed log
+        logNotificationAttempt({
+          transactionId: r.transaction_id,
+          sourceType: r.source_type,
+          channel: r.channel,
+          payload: r.payload,
+          attemptNumber: nextAttempt,
+          success: false,
+          responseCode: 429,
+          responseBody: 'max_retries_exceeded',
+        });
+        continue;
+      }
 
       const sent = await telegram.sendMessage(r.payload, 'HTML');
+
       logNotificationAttempt({
         transactionId: r.transaction_id,
         sourceType: r.source_type,
         channel: r.channel,
         payload: r.payload,
+        attemptNumber: nextAttempt,
         success: !!sent,
         responseCode: sent ? 200 : 0,
         responseBody: sent ? 'ok' : 'failed',

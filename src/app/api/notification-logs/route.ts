@@ -31,15 +31,16 @@ export async function POST(request: Request) {
     // server-side DB write
     try {
       const cache = await import('@/lib/cache');
-      cache.logNotificationAttempt({
-        transactionId,
-        sourceType,
-        channel,
-        payload: String(payload).slice(0, 2000),
-        success: !!success,
-        responseCode: responseCode === null ? null : Number(responseCode),
-        responseBody: responseBody ? String(responseBody).slice(0, 2000) : null,
-      });
+        cache.logNotificationAttempt({
+          transactionId,
+          sourceType,
+          channel,
+          payload: String(payload).slice(0, 2000),
+          attemptNumber: body.attemptNumber && Number(body.attemptNumber) > 0 ? Number(body.attemptNumber) : 1,
+          success: !!success,
+          responseCode: responseCode === null ? null : Number(responseCode),
+          responseBody: responseBody ? String(responseBody).slice(0, 2000) : null,
+        });
 
       // If this log indicates a successful notification for a specific transaction, mark it
       if (transactionId && success) {

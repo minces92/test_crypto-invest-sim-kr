@@ -49,7 +49,6 @@ export default function AutoTrader() {
   const [momentumThreshold, setMomentumThreshold] = useState('5');
 
   // AI Strategy State
-  const [selectedMarket, setSelectedMarket] = useState('');
   const [selectedStrategy, setSelectedStrategy] = useState<string>('dca');
   const [config, setConfig] = useState<any>({});
   const [aiLoading, setAiLoading] = useState(false);
@@ -163,7 +162,7 @@ export default function AutoTrader() {
 
   // New handleStart for AI recommended strategies
   const handleStartAIStrategy = () => {
-    if (!selectedMarket) return;
+    if (!market) return;
 
     const strategy = recommendedStrategies.find(s => s.id === selectedStrategy);
     if (!strategy) return;
@@ -171,7 +170,7 @@ export default function AutoTrader() {
     // Construct the strategy object based on the selected strategy and config
     const aiStrategyConfig: any = {
       strategyType: selectedStrategy,
-      market: selectedMarket,
+      market: market,
       ...config, // Spread the config parameters
       name: strategy.name, // Add name from the recommended strategy
       description: aiRecommendation?.reasoning || strategy.defaultConfig.description, // Add description
@@ -179,12 +178,11 @@ export default function AutoTrader() {
 
     startStrategy(aiStrategyConfig as any);
     // Reset selection
-    setSelectedMarket('');
     setAiRecommendation(null);
   };
 
   const handleGetRecommendation = async () => {
-    if (!selectedMarket) {
+    if (!market) {
       toast.error('마켓을 먼저 선택해주세요.');
       return;
     }
@@ -196,7 +194,7 @@ export default function AutoTrader() {
       const response = await fetch('/api/ai/recommend-strategy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ market: selectedMarket }),
+        body: JSON.stringify({ market: market }),
       });
 
       if (!response.ok) throw new Error('Failed to get recommendation');

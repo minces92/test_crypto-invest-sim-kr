@@ -1054,6 +1054,48 @@ export function deleteTransaction(transactionId?: string): void {
 }
 
 /**
+ * 모든 설정을 가져옵니다.
+ * @returns 키-값 쌍의 설정 객체
+ */
+export function getAllSettings(): Record<string, string> {
+  const database = getDatabase();
+  const rows = database
+    .prepare('SELECT key, value FROM settings')
+    .all() as Array<{ key: string; value: string }>;
+
+  return rows.reduce((acc, row) => {
+    acc[row.key] = row.value;
+    return acc;
+  }, {});
+}
+
+/**
+ * 특정 설정 값을 가져옵니다.
+ * @param key - 설정 키
+ * @returns 설정 값 또는 null
+ */
+export function getSetting(key: string): string | null {
+  const database = getDatabase();
+  const result = database
+    .prepare('SELECT value FROM settings WHERE key = ?')
+    .get(key) as { value: string } | undefined;
+  
+  return result ? result.value : null;
+}
+
+/**
+ * 설정 값을 업데이트하거나 새로 추가합니다.
+ * @param key - 설정 키
+ * @param value - 설정 값
+ */
+export function updateSetting(key: string, value: string): void {
+  const database = getDatabase();
+  database
+    .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
+    .run(key, value);
+}
+
+/**
  * 데이터베이스 초기화 (모든 테이블 삭제 후 재생성)
  */
 export function resetDatabase(): void {

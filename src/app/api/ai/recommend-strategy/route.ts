@@ -3,6 +3,36 @@ import { createAIClient } from '@/lib/ai-client';
 import { getCandlesWithCache } from '@/lib/cache';
 import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
 
+function _parseJsonResponse(text: string): any {
+  // First, try to find a JSON block enclosed in ```json ... ```
+  const jsonBlockMatch = text.match(/```json\n([\s\S]*?)\n```/);
+  let jsonString = '';
+
+  if (jsonBlockMatch && jsonBlockMatch[1]) {
+    jsonString = jsonBlockMatch[1].trim();
+  } else {
+    // If no block is found, fall back to the first '{' and last '}'
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      jsonString = text.substring(firstBrace, lastBrace + 1);
+    }
+  }
+
+  if (!jsonString) {
+    console.error("Could not find JSON in response:", text);
+    throw new Error('No JSON object found in the response.');
+  }
+
+  try {
+    return JSON.parse(jsonString);
+  } catch (e: any) {
+    console.error("Failed to parse JSON string:", jsonString);
+    // Re-throw the original error with more context
+    throw new Error(`JSON parsing failed: ${e.message}`);
+  }
+}
+
 export async function POST(request: Request) {
     try {
         const { market } = await request.json();
@@ -47,18 +77,23 @@ export async function POST(request: Request) {
     Bollinger Bands: Upper ${currentUpper?.toFixed(2)}, Lower ${currentLower?.toFixed(2)}
     
     Available Strategies:
-    1. DCA (Dollar Cost Averaging): Best for long-term accumulation.
-    2. MA (Moving Average): Best for trending markets.
-    3. RSI: Best for oscillating markets (overbought/oversold).
-    4. Bollinger Bands: Best for volatility trading.
+    1. MA (Moving Average): Best for trending markets.
+    2. RSI: Best for oscillating markets (overbought/oversold).
+    3. Bollinger Bands: Best for volatility trading.
     
     Based on the technical indicators, which strategy would be most effective right now?
-    Provide the response in JSON format with the following structure:
+    Provide the response in JSON format with the following structure. Ensure parameter names match exactly as specified below for each strategy type:
     {
-      "recommendedStrategy": "dca" | "ma" | "rsi" | "bband",
+      "recommendedStrategy": "ma" | "rsi" | "bband" | "news" | "volatility" | "momentum",
       "reasoning": "Short explanation in Korean",
       "parameters": {
-        // Suggested parameters for the chosen strategy
+        // Suggested parameters for the chosen strategy.
+        // For "ma": { "shortPeriod": number, "longPeriod": number }
+        // For "rsi": { "period": number, "buyThreshold": number, "sellThreshold": number }
+        // For "bband": { "period": number, "multiplier": number }
+        // For "news": { "sentimentThreshold": "positive" | "negative" }
+        // For "volatility": { "multiplier": number }
+        // For "momentum": { "period": number, "threshold": number }
       }
     }
     `;
@@ -71,13 +106,7 @@ export async function POST(request: Request) {
         const response = await aiClient.generate(prompt);
 
         // 5. Parse AI response
-        // Try to find JSON in the response
-        const jsonMatch = response.match(/\{[\s\S]*\}/);
-        if (!jsonMatch) {
-            throw new Error('Failed to parse AI response');
-        }
-
-        const recommendation = JSON.parse(jsonMatch[0]);
+        const recommendation = _parseJsonResponse(response);
 
         return NextResponse.json(recommendation);
 

@@ -150,9 +150,10 @@ export async function POST(request: Request) {
 
         // If sell, compute profit% vs average buy price for the market
         let profitText = '';
+        const allTx = cache.getTransactions(); // Get all transactions to calculate profit and cash balance
+
         if (newTransaction.type === 'sell') {
           try {
-            const allTx = cache.getTransactions();
             // compute average buy price from previous buy transactions for this market (excluding this sell)
             const buys = allTx.filter((t: any) => t.market === newTransaction.market && t.type === 'buy');
             let avgBuyPrice = 0;
@@ -172,8 +173,20 @@ export async function POST(request: Request) {
             console.warn('Failed to compute profit percent for transaction', newTransaction.id, e);
           }
         }
+        
+        // Calculate current cash balance
+        const initialCashSetting = cache.getSetting('initial_cash');
+        let calculatedCash = initialCashSetting ? Number(initialCashSetting) : 1000000;
+        for (const tx of allTx) {
+          if (tx.type === 'buy') {
+            calculatedCash -= tx.price * tx.amount;
+          } else { // sell
+            calculatedCash += tx.price * tx.amount;
+          }
+        }
+        const cashBalanceText = `\n<b>현금 잔액:</b> ${Math.round(calculatedCash).toLocaleString('ko-KR')} 원`;
 
-        const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
+        const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}${cashBalanceText}\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
 
         // 텔레그램 전송 시도
         let sent = false;

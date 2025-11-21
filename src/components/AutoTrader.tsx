@@ -162,21 +162,22 @@ export default function AutoTrader() {
 
   // New handleStart for AI recommended strategies
   const handleStartAIStrategy = () => {
-    if (!market) return;
+    if (!market || !selectedStrategy || !aiRecommendation) {
+      toast.error('AI 추천 정보가 부족하여 전략을 시작할 수 없습니다.');
+      return;
+    }
 
-    const strategy = recommendedStrategies.find(s => s.id === selectedStrategy);
-    if (!strategy) return;
-
-    // Construct the strategy object based on the selected strategy and config
+    // Construct the strategy object based on the AI recommendation
     const aiStrategyConfig: any = {
       strategyType: selectedStrategy,
       market: market,
-      ...config, // Spread the config parameters
-      name: strategy.name, // Add name from the recommended strategy
-      description: aiRecommendation?.reasoning || strategy.defaultConfig.description, // Add description
+      ...config, // Spread the config parameters from AI
+      name: `AI 추천: ${market.replace('KRW-', '')} ${selectedStrategy.toUpperCase()}`, // Create a dynamic name
+      description: aiRecommendation.reasoning || `AI가 추천한 ${selectedStrategy} 전략입니다.`, // Use AI reasoning
     };
 
     startStrategy(aiStrategyConfig as any);
+    toast.success(`AI 추천 전략(${aiStrategyConfig.name})이 시작되었습니다.`);
     // Reset selection
     setAiRecommendation(null);
   };
@@ -490,13 +491,13 @@ export default function AutoTrader() {
                   <div>
                     <div className="f4 font-bold">{s.market} <span className={`Label Label--${s.isActive ? 'success' : 'secondary'}`}>{s.strategyType.toUpperCase()}</span></div>
                     <div className="text-small color-fg-muted">
-                      {s.strategyType === 'dca' && `적립식 (${s.amount.toLocaleString()}원 / ${s.interval})`}
-                      {s.strategyType === 'ma' && `이평선 교차 (${s.shortPeriod} / ${s.longPeriod})`}
-                      {s.strategyType === 'rsi' && `RSI (${s.period}, ${s.buyThreshold}/${s.sellThreshold})`}
-                      {s.strategyType === 'bband' && `볼린저 밴드 (${s.period}, ${s.multiplier})`}
+                      {s.strategyType === 'dca' && `적립식 (${s.amount?.toLocaleString() ?? 'N/A'}원 / ${s.interval ?? 'N/A'})`}
+                      {s.strategyType === 'ma' && `이평선 교차 (${s.shortPeriod ?? 'N/A'} / ${s.longPeriod ?? 'N/A'})`}
+                      {s.strategyType === 'rsi' && `RSI (${s.period ?? 'N/A'}, ${s.buyThreshold ?? 'N/A'}/${s.sellThreshold ?? 'N/A'})`}
+                      {s.strategyType === 'bband' && `볼린저 밴드 (${s.period ?? 'N/A'}, ${s.multiplier ?? 'N/A'})`}
                       {s.strategyType === 'news' && `뉴스 기반 (${s.sentimentThreshold === 'positive' ? '긍정' : '부정'})`}
-                      {s.strategyType === 'volatility' && `변동성 돌파 (승수: ${s.multiplier})`}
-                      {s.strategyType === 'momentum' && `모멘텀 (기간: ${s.period}, 임계값: ${s.threshold}%)`}
+                      {s.strategyType === 'volatility' && `변동성 돌파 (승수: ${s.multiplier ?? 'N/A'})`}
+                      {s.strategyType === 'momentum' && `모멘텀 (기간: ${s.period ?? 'N/A'}, 임계값: ${s.threshold ?? 'N/A'}%)`}
                     </div>
                   </div>
                   <button className="btn btn-danger btn-sm" onClick={() => stopStrategy(s.id)}>중지</button>

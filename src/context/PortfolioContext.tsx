@@ -6,6 +6,7 @@ import { useData } from './DataProviderContext';
 import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
+
 // --- Interface 정의들 ---
 interface Asset {
   market: string;
@@ -91,9 +92,10 @@ interface PortfolioContextType {
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
-const INITIAL_CASH = 1000000; // 기본 원금: 1,000,000 KRW
+// INITIAL_CASH is now imported from '@/lib/constants'
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
+  const [initialCashValue, setInitialCashValue] = useState(1000000); // Default value, will be updated from API
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const { tickers } = useData();
@@ -111,6 +113,18 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   }, [transactions]);
 
   useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+          const data = await response.json();
+          setInitialCashValue(Number(data.initial_cash) || 1000000);
+        }
+      } catch (error) {
+        console.error('Error fetching settings, using default initial cash:', error);
+      }
+    };
+
     const fetchTransactions = async () => {
       try {
         const response = await fetch('/api/transactions');
@@ -146,6 +160,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
+    fetchSettings();
     fetchTransactions();
     fetchStrategies();
 
@@ -153,8 +168,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const getPortfolioState = (currentTransactions: Transaction[]) => {
-    let calculatedCash = INITIAL_CASH;
+  const getPortfolioState = (currentTransactions: Transaction[], initialCash: number) => {
+    let calculatedCash = initialCash;
     const calculatedAssets: { [market: string]: Asset } = {};
 
     // Process transactions in reverse order (oldest first)
@@ -192,7 +207,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     };
   };
 
-  const { assets, cash } = useMemo(() => getPortfolioState(transactions), [transactions]);
+  const { assets, cash } = useMemo(() => getPortfolioState(transactions, initialCashValue), [transactions, initialCashValue]);
 
   const addTransaction = async (
     type: 'buy' | 'sell',

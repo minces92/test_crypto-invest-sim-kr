@@ -1,5 +1,23 @@
 # 개발 진행 상황 요약
 
+## 최근 변경 사항 (2025-11-20)
+
+### 거래 및 뉴스 알림 에러 수정
+- 거래 알림: 서버 사이드에서 내부 API 호출(`fetch`) 대신 직접 함수 호출로 변경하여 에러 방지 및 성능 개선
+- 뉴스 알림: 비동기 알림 전송 중 에러 처리 강화, 알림 실패가 데이터 반환에 영향을 주지 않도록 개선
+- 에러 핸들링: 모든 알림 실패 시나리오에 대한 로깅 및 복구 로직 추가
+- 상세 내용: `docs/bugfix-transaction-news-notification.md` 참고
+
+## 최근 변경 사항 (2025-11-20)
+
+- AI 분석 프롬프트가 변동성 돌파/모멘텀 전략 지표를 포함하여 전략별 맥락을 그대로 전달합니다. (`src/lib/ai-client.ts`, `/api/ai/analyze`)
+- `/api/analyze-trade` 문서가 실제 Ollama 기반 동작 및 캐시 흐름을 반영하도록 업데이트되었습니다.
+- `/api/ai/analyze` 명세 문서가 추가되었고, `AI_LOG_ENABLED` 설정 시 프롬프트/응답이 `logs/ai-debug.log`에 자동 기록됩니다.
+- `scripts/test-strategies.js`를 통해 변동성/모멘텀 시나리오에 대한 통합 테스트를 빠르게 실행할 수 있습니다.
+- `AutoTrader`에 추천/커스텀 뷰 전환, 접이식 파라미터 섹션, 모바일 친화 요약 카드가 추가되었습니다.
+- `NotificationLogs`는 재전송 결과를 토스트로 안내하며, 실패 항목을 배지 색으로 즉시 확인할 수 있습니다.
+- `ChartComponent`에 다크/라이트 테마 토글이 추가되어 사용자 선호에 맞춰 시각화를 전환할 수 있습니다.
+
 ## 최근 변경 사항 (2025-11-14)
 
 다음 항목들이 프로젝트에 적용되어 문서와 코드에 반영되어 있습니다:
@@ -79,4 +97,18 @@
 - `docs/ollama-installation-guide.md` - Ollama 설치 가이드
 - `SETUP.md` - 빠른 시작 가이드
 - `README-OLLAMA.md` - Ollama 사용 가이드
+
+## 빠른 검증 예시
+
+다음 curl 명령어로 로컬에서 핵심 API 동작을 빠르게 확인할 수 있습니다.
+
+```bash
+# 1) Notification logs
+curl -sS http://localhost:3000/api/notification-logs | jq '.'
+# Expect: JSON array of recent notification attempts with `attemptNumber`, `messageHash`, `success`, and `createdAtKst`.
+
+# 2) Test telegram (requires TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID in .env.local)
+curl -sS http://localhost:3000/api/test-telegram | jq '.'
+# Expect: { "sent": true } or JSON error explaining failure.
+```
 

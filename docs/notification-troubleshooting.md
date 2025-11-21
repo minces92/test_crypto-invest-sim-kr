@@ -50,6 +50,27 @@ npm run dev
 - GET http://localhost:3000/api/notification-logs to inspect records. Successful attempts should have `success: true` and show `createdAtKst`.
 - Query the `transactions` table (e.g., open `crypto_cache.db` with a sqlite viewer) and check `notification_sent` for the transaction is 1.
 
+### Quick API examples (curl)
+
+Check notification logs (returns recent logs):
+
+```bash
+curl -sS http://localhost:3000/api/notification-logs | jq '.'
+# Expected: JSON array. Each item contains `attemptNumber`, `messageHash`, `success`, and `createdAtKst`.
+```
+
+Test Telegram endpoint (requires env vars set):
+
+```bash
+# If TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set in .env.local
+curl -sS http://localhost:3000/api/test-telegram | jq '.'
+# Expected: { "sent": true } on success, or a JSON error when credentials/chat-id invalid.
+
+# Debug with custom chat id (reproduce 400 "chat not found")
+curl -sS "http://localhost:3000/api/test-telegram/debug?chatId=123456789" | jq '.'
+# Expected: Telegram API response with ok:false and a `description` field describing the error.
+```
+
 ## If you still see duplicates
 
 - Check server console for repeated `[telegram]` logs with the same payload. It means multiple notification triggers happened; check if client also sends messages directly (older code) — client should not call Telegram directly anymore.

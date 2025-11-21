@@ -1,21 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { 
-  ComposedChart, 
-  Line, 
-  Area, 
-  Bar, 
-  XAxis, 
-  YAxis, 
-  CartesianGrid, 
-  Tooltip, 
-  Legend, 
-  ResponsiveContainer,
-  ReferenceLine
-} from 'recharts';
-import { calculateSMA, calculateEMA, calculateRSI, calculateBollingerBands, calculateMACD } from '@/lib/utils';
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { createChart, ColorType, IChartApi, ISeriesApi, Time, CandlestickSeries, LineSeries } from 'lightweight-charts';
+import { calculateSMA, calculateEMA, calculateBollingerBands } from '@/lib/utils';
 import { usePortfolio } from '@/context/PortfolioContext';
+import { useMarketData } from '@/hooks/useMarketData';
 
 interface CandleData {
   candle_date_time_utc: string;
@@ -30,183 +19,194 @@ interface ChartComponentProps {
   market: string;
 }
 
-interface ChartDataPoint {
-  time: string;
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume?: number;
-  sma?: number;
-  ema?: number;
-  bbUpper?: number;
-  bbMiddle?: number;
-  bbLower?: number;
-}
-
 interface IndicatorConfig {
   sma: boolean;
   ema: boolean;
-  rsi: boolean;
-  macd: boolean;
   bollinger: boolean;
 }
 
 export default function ChartComponent({ market }: ChartComponentProps) {
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const candleSeriesRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
+  const smaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const emaSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbUpperSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const bbLowerSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+
   const { transactions } = usePortfolio();
   const [loading, setLoading] = useState(true);
-  const [chartData, setChartData] = useState<ChartDataPoint[]>([]);
-  const [rsiData, setRsiData] = useState<Array<{ time: string; rsi: number }>>([]);
-  const [macdData, setMacdData] = useState<Array<{ time: string; macd: number; signal: number; histogram: number }>>([]);
   const [error, setError] = useState<string | null>(null);
-  const [interval, setInterval] = useState('day'); // 'day', 'minute240', 'minute60', 'minute30'
+  const [chartInterval, setChartInterval] = useState('day'); // 'day', 'minute240', 'minute60', 'minute30'
   const [indicators, setIndicators] = useState<IndicatorConfig>({
     sma: true,
     ema: false,
-    rsi: false,
-    macd: false,
     bollinger: false,
   });
-  const [showVolume, setShowVolume] = useState(true);
+  const [chartTheme, setChartTheme] = useState<'dark' | 'light'>('dark');
 
-  const fetchChartData = useCallback(async (isInitialLoad = false) => {
-    if (!market) {
-      setLoading(false);
-      return;
-    }
-    if (isInitialLoad) {
+  // Initialize Chart
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+
+    const chart = createChart(chartContainerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: chartTheme === 'dark' ? '#0d1117' : '#ffffff' },
+        textColor: chartTheme === 'dark' ? '#c9d1d9' : '#24292f',
+      },
+      grid: {
+        vertLines: { color: chartTheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+        horzLines: { color: chartTheme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' },
+      },
+      width: chartContainerRef.current.clientWidth,
+      height: 400,
+      timeScale: {
+        timeVisible: true,
+        secondsVisible: false,
+      },
+    });
+
+    const candleSeries = chart.addSeries(CandlestickSeries, {
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderVisible: false,
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    });
+
+    console.log('[ChartComponent] Series created:', candleSeries);
+
+    chartRef.current = chart;
+    candleSeriesRef.current = candleSeries;
+
+    const handleResize = () => {
+      if (chartContainerRef.current) {
+        chart.applyOptions({ width: chartContainerRef.current.clientWidth });
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      chart.remove();
+    };
+  }, [chartTheme]);
+
+  // Fetch Data using SWR
+  const { candles, isLoading, isError, mutate } = useMarketData(market, chartInterval, 200);
+
+  useEffect(() => {
+    if (isLoading) {
       setLoading(true);
-    }
-    setError(null);
-    try {
-      const response = await fetch(`/api/candles?market=${market}&count=90&interval=${interval}`);
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status}`);
-      }
-      const rawData: CandleData[] = await response.json();
-      
-      if (!rawData || rawData.length === 0) {
-        setError('차트 데이터가 없습니다.');
-        setChartData([]);
-        return;
-      }
+      setError(null);
+    } else if (isError) {
+      setLoading(false);
+      setError('데이터 로드 실패');
+    } else if (candles && candles.length > 0) {
+      setLoading(false);
+      setError(null);
 
-      const validData = rawData
-        .filter(d => d && d.candle_date_time_utc && d.trade_price != null)
-        .sort((a, b) => new Date(a.candle_date_time_utc).getTime() - new Date(b.candle_date_time_utc).getTime());
+      if (!chartRef.current || !candleSeriesRef.current) return;
 
-      if (validData.length === 0) {
-        setError('유효한 차트 데이터가 없습니다.');
-        setChartData([]);
-        return;
-      }
+      const validData = candles
+        .filter((d: any) => d && d.candle_date_time_utc && d.trade_price != null)
+        .sort((a: any, b: any) => new Date(a.candle_date_time_utc).getTime() - new Date(b.candle_date_time_utc).getTime())
+        .map((d: any) => ({
+          time: (new Date(d.candle_date_time_utc).getTime() / 1000) as Time,
+          open: d.opening_price,
+          high: d.high_price,
+          low: d.low_price,
+          close: d.trade_price,
+        }));
 
-      const formatTime = (utc: string) => {
-        const date = new Date(utc);
-        if (interval === 'day') {
-          return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
-        }
-        return date.toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-      };
+      candleSeriesRef.current.setData(validData);
 
-      const baseChartData: ChartDataPoint[] = validData.map(d => ({
-        time: formatTime(d.candle_date_time_utc),
-        open: d.opening_price,
-        high: d.high_price,
-        low: d.low_price,
-        close: d.trade_price,
-        volume: d.candle_acc_trade_volume || 0,
-      }));
+      // Indicators
+      const priceData = validData.map(d => ({ trade_price: d.close }));
 
-      const priceData = baseChartData.map(d => ({ trade_price: d.close }));
-
+      // SMA
       if (indicators.sma) {
-        const smaPeriod = 20;
-        const smaValues = calculateSMA(priceData, smaPeriod);
-        baseChartData.forEach((d, i) => {
-          if (i >= smaPeriod - 1) d.sma = smaValues[i - smaPeriod + 1];
-        });
-      }
-      if (indicators.ema) {
-        const emaPeriod = 12;
-        const emaValues = calculateEMA(priceData, emaPeriod);
-        baseChartData.forEach((d, i) => {
-          if (i >= emaPeriod - 1) d.ema = emaValues[i - emaPeriod + 1];
-        });
-      }
-      if (indicators.bollinger) {
-        const bbPeriod = 20;
-        const bbMultiplier = 2;
-        const bb = calculateBollingerBands(priceData, bbPeriod, bbMultiplier);
-        baseChartData.forEach((d, i) => {
-          if (i >= bbPeriod - 1) {
-            const bbIndex = i - bbPeriod + 1;
-            d.bbUpper = bb.upper[bbIndex];
-            d.bbMiddle = bb.middle[bbIndex];
-            d.bbLower = bb.lower[bbIndex];
-          }
-        });
-      }
-      if (indicators.rsi) {
-        const rsiPeriod = 14;
-        const rsiValues = calculateRSI(priceData, rsiPeriod);
-        setRsiData(baseChartData.slice(rsiPeriod).map((d, i) => ({
+        if (!smaSeriesRef.current) {
+          smaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: '#ffc658', lineWidth: 2, title: 'SMA(20)' });
+        }
+        const smaValues = calculateSMA(priceData, 20);
+        const smaData = validData.map((d, i) => ({
           time: d.time,
-          rsi: Math.min(100, Math.max(0, rsiValues[i])),
-        })));
-      } else {
-        setRsiData([]);
-      }
-      if (indicators.macd) {
-        const macdResult = calculateMACD(priceData, 12, 26, 9);
-        setMacdData(baseChartData.slice(26 + 9 - 1).map((d, i) => ({
-          time: d.time,
-          macd: macdResult.macdLine[i] || 0,
-          signal: macdResult.signalLine[i] || 0,
-          histogram: macdResult.histogram[i] || 0,
-        })));
-      } else {
-        setMacdData([]);
+          value: smaValues[i] || NaN,
+        })).filter(d => !isNaN(d.value));
+        smaSeriesRef.current.setData(smaData);
+      } else if (smaSeriesRef.current) {
+        chartRef.current.removeSeries(smaSeriesRef.current);
+        smaSeriesRef.current = null;
       }
 
-      setChartData(baseChartData);
-    } catch (error) {
-      console.error('Failed to fetch or render chart data:', error);
-      setError(error instanceof Error ? error.message : '차트 데이터를 불러오지 못했습니다.');
-    } finally {
-      if (isInitialLoad) {
-        setLoading(false);
+      // EMA
+      if (indicators.ema) {
+        if (!emaSeriesRef.current) {
+          emaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: '#82ca9d', lineWidth: 2, title: 'EMA(12)' });
+        }
+        const emaValues = calculateEMA(priceData, 12);
+        const emaData = validData.map((d, i) => ({
+          time: d.time,
+          value: emaValues[i] || NaN,
+        })).filter(d => !isNaN(d.value));
+        emaSeriesRef.current.setData(emaData);
+      } else if (emaSeriesRef.current) {
+        chartRef.current.removeSeries(emaSeriesRef.current);
+        emaSeriesRef.current = null;
+      }
+
+      // Bollinger Bands
+      if (indicators.bollinger) {
+        if (!bbUpperSeriesRef.current || !bbLowerSeriesRef.current) {
+          // Ensure both are created if missing
+          if (bbUpperSeriesRef.current) chartRef.current.removeSeries(bbUpperSeriesRef.current);
+          if (bbLowerSeriesRef.current) chartRef.current.removeSeries(bbLowerSeriesRef.current);
+
+          bbUpperSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: '#ccc', lineWidth: 1, lineStyle: 2, title: 'BB Upper' });
+          bbLowerSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: '#ccc', lineWidth: 1, lineStyle: 2, title: 'BB Lower' });
+        }
+        const bb = calculateBollingerBands(priceData, 20, 2);
+        const bbUpperData = validData.map((d, i) => ({ time: d.time, value: bb.upper[i] || NaN })).filter(d => !isNaN(d.value));
+        const bbLowerData = validData.map((d, i) => ({ time: d.time, value: bb.lower[i] || NaN })).filter(d => !isNaN(d.value));
+
+        bbUpperSeriesRef.current.setData(bbUpperData);
+        bbLowerSeriesRef.current.setData(bbLowerData);
+      } else {
+        if (bbUpperSeriesRef.current) {
+          chartRef.current.removeSeries(bbUpperSeriesRef.current);
+          bbUpperSeriesRef.current = null;
+        }
+        if (bbLowerSeriesRef.current) {
+          chartRef.current.removeSeries(bbLowerSeriesRef.current);
+          bbLowerSeriesRef.current = null;
+        }
+      }
+
+      // Markers (Transactions)
+      const markers = transactions
+        .filter(tx => tx.market === market)
+        .map(tx => ({
+          time: (new Date(tx.timestamp).getTime() / 1000) as Time,
+          position: tx.type === 'buy' ? 'belowBar' : 'aboveBar',
+          color: tx.type === 'buy' ? '#2ecc71' : '#e74c3c',
+          shape: tx.type === 'buy' ? 'arrowUp' : 'arrowDown',
+          text: tx.type === 'buy' ? '매수' : '매도',
+        }));
+      // @ts-ignore
+      if (typeof candleSeriesRef.current.setMarkers === 'function') {
+        // @ts-ignore
+        candleSeriesRef.current.setMarkers(markers);
+      } else {
+        console.error('setMarkers is not a function on candleSeriesRef.current', candleSeriesRef.current);
       }
     }
-  }, [market, interval, indicators]);
+  }, [candles, isLoading, isError, indicators, transactions, market]);
 
-  // Initial data fetch and manual changes
-  useEffect(() => {
-    fetchChartData(true);
-  }, [fetchChartData]);
-
-  // Periodic refresh
-  useEffect(() => {
-    const refreshInterval = process.env.NEXT_PUBLIC_REFRESH_INTERVAL
-      ? parseInt(process.env.NEXT_PUBLIC_REFRESH_INTERVAL, 10)
-      : 5000;
-    
-    const intervalId = setInterval(() => {
-      fetchChartData(false); // Subsequent fetches are not initial loads
-    }, refreshInterval);
-
-    return () => clearInterval(intervalId);
-  }, [fetchChartData]);
-
-  const marketTransactions = transactions.filter(tx => tx.market === market);
-
-  if (loading) {
-    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px' }}>차트 로딩 중...</div>;
-  }
-
-  if (error) {
-    return <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '400px', color: '#f85149' }}><p>{error}</p></div>;
-  }
+  const fetchChartData = (refresh: boolean) => {
+    if (refresh) mutate();
+  };
 
   const intervalButtons = [
     { label: '일', value: 'day' },
@@ -220,13 +220,12 @@ export default function ChartComponent({ market }: ChartComponentProps) {
       <div style={{ marginBottom: '10px', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
         <div style={{ display: 'flex', gap: '4px' }}>
           {intervalButtons.map(btn => (
-            <button key={btn.value} onClick={() => setInterval(btn.value)} className={`btn btn-sm ${interval === btn.value ? 'btn-primary' : ''}`}>
+            <button key={btn.value} onClick={() => setChartInterval(btn.value)} className={`btn btn-sm ${chartInterval === btn.value ? 'btn-primary' : ''}`}>
               {btn.label}
             </button>
           ))}
         </div>
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-          {/* Indicator checkboxes */}
           <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
             <input type="checkbox" checked={indicators.sma} onChange={(e) => setIndicators({ ...indicators, sma: e.target.checked })} /> SMA(20)
           </label>
@@ -236,81 +235,42 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
             <input type="checkbox" checked={indicators.bollinger} onChange={(e) => setIndicators({ ...indicators, bollinger: e.target.checked })} /> 볼린저밴드
           </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-            <input type="checkbox" checked={indicators.rsi} onChange={(e) => setIndicators({ ...indicators, rsi: e.target.checked })} /> RSI
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-            <input type="checkbox" checked={indicators.macd} onChange={(e) => setIndicators({ ...indicators, macd: e.target.checked })} /> MACD
-          </label>
-          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '12px' }}>
-            <input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)} /> 거래량
-          </label>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() => {
+              const nextTheme = chartTheme === 'dark' ? 'light' : 'dark';
+              setChartTheme(nextTheme);
+            }}
+          >
+            {chartTheme === 'dark' ? '라이트 모드' : '다크 모드'}
+          </button>
         </div>
       </div>
 
-      {/* Main Chart */}
-      <ResponsiveContainer width="100%" height={indicators.rsi || indicators.macd ? 300 : 400}>
-        <ComposedChart data={chartData} margin={{ top: 5, right: 20, left: -10, bottom: 5 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-          <XAxis dataKey="time" tick={{ fontSize: 11 }} />
-          <YAxis yAxisId="price" orientation="left" domain={['auto', 'auto']} tick={{ fontSize: 11 }} tickFormatter={(value) => typeof value === 'number' ? value.toLocaleString() : value} />
-          {showVolume && <YAxis yAxisId="volume" orientation="right" domain={[0, 'auto']} tick={{ fontSize: 11 }} tickFormatter={(value) => typeof value === 'number' ? (value / 1000000).toFixed(1) + 'M' : value} />}
-          <Tooltip
-            contentStyle={{ backgroundColor: 'rgba(30, 30, 30, 0.8)', border: '1px solid #555', fontSize: '12px' }}
-            formatter={(value: any) => typeof value === 'number' ? value.toLocaleString('ko-KR') : value}
-          />
-          <Legend wrapperStyle={{ fontSize: '12px' }} />
-          
-          <Line type="monotone" dataKey="close" stroke="#8884d8" strokeWidth={2} dot={false} yAxisId="price" name="종가" />
-          {indicators.sma && <Line type="monotone" dataKey="sma" stroke="#ffc658" strokeWidth={1.5} dot={false} yAxisId="price" name="SMA" />}
-          {indicators.ema && <Line type="monotone" dataKey="ema" stroke="#82ca9d" strokeWidth={1.5} dot={false} yAxisId="price" name="EMA" />}
-          {indicators.bollinger && <Line type="monotone" dataKey="bbUpper" stroke="#ccc" strokeWidth={1} strokeDasharray="3 3" dot={false} yAxisId="price" name="BB상단" />}
-          {indicators.bollinger && <Line type="monotone" dataKey="bbLower" stroke="#ccc" strokeWidth={1} strokeDasharray="3 3" dot={false} yAxisId="price" name="BB하단" />}
-          
-          {marketTransactions.map(tx => {
-            const txDate = interval === 'day' 
-              ? new Date(tx.timestamp).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })
-              : new Date(tx.timestamp).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-            const dataPoint = chartData.find(d => d.time === txDate);
-            if (dataPoint) {
-              return <ReferenceLine key={tx.id} x={txDate} stroke={tx.type === 'buy' ? 'limegreen' : 'red'} label={{ value: tx.type === 'buy' ? 'B' : 'S', fill: tx.type === 'buy' ? 'limegreen' : 'red', fontSize: 12, position: 'top' }} />;
-            }
-            return null;
-          })}
-
-          {showVolume && <Bar dataKey="volume" fill="rgba(136, 132, 216, 0.4)" yAxisId="volume" name="거래량" />}
-        </ComposedChart>
-      </ResponsiveContainer>
-
-      {/* RSI Chart */}
-      {indicators.rsi && rsiData.length > 0 && (
-        <ResponsiveContainer width="100%" height={100}>
-          <ComposedChart data={rsiData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-            <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-            <YAxis domain={[0, 100]} tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ backgroundColor: 'rgba(30, 30, 30, 0.8)', border: '1px solid #555', fontSize: '12px' }} />
-            <Line type="monotone" dataKey="rsi" stroke="#9b59b6" strokeWidth={1.5} dot={false} name="RSI" />
-            <ReferenceLine y={70} stroke="red" strokeDasharray="3 3" />
-            <ReferenceLine y={30} stroke="limegreen" strokeDasharray="3 3" />
-          </ComposedChart>
-        </ResponsiveContainer>
-      )}
-
-      {/* MACD Chart */}
-      {indicators.macd && macdData.length > 0 && (
-        <ResponsiveContainer width="100%" height={100}>
-          <ComposedChart data={macdData} margin={{ top: 10, right: 20, left: -10, bottom: 5 }}>
-            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255, 255, 255, 0.1)" />
-            <XAxis dataKey="time" tick={{ fontSize: 10 }} />
-            <YAxis tick={{ fontSize: 10 }} />
-            <Tooltip contentStyle={{ backgroundColor: 'rgba(30, 30, 30, 0.8)', border: '1px solid #555', fontSize: '12px' }} />
-            <Line type="monotone" dataKey="macd" stroke="#3498db" strokeWidth={1.5} dot={false} name="MACD" />
-            <Line type="monotone" dataKey="signal" stroke="#e74c3c" strokeWidth={1} dot={false} name="Signal" />
-            <Bar dataKey="histogram" fill={(data) => data.histogram > 0 ? 'rgba(0, 255, 0, 0.4)' : 'rgba(255, 0, 0, 0.4)'} name="Histogram" />
-          </ComposedChart>
-        </ResponsiveContainer>
-      )}
+      <div ref={chartContainerRef} style={{ width: '100%', height: '400px', position: 'relative' }}>
+        {loading && <div style={{ position: 'absolute', top: '50%', left: '50%', transform: 'translate(-50%, -50%)', zIndex: 10 }}>로딩 중...</div>}
+        {error && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            backgroundColor: chartTheme === 'dark' ? 'rgba(13, 17, 23, 0.8)' : 'rgba(255, 255, 255, 0.8)',
+            zIndex: 20,
+            color: '#cf222e'
+          }}>
+            <div style={{ textAlign: 'center' }}>
+              <p className="mb-2">⚠️ {error}</p>
+              <button className="btn btn-sm" onClick={() => fetchChartData(true)}>다시 시도</button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

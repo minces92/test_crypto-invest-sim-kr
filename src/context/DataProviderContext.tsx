@@ -1,6 +1,7 @@
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import React, { createContext, useContext, ReactNode } from 'react';
+import { useTickerData } from '@/hooks/useTickerData';
 
 interface Ticker {
   market: string;
@@ -9,63 +10,26 @@ interface Ticker {
   acc_trade_price_24h: number;
 }
 
-interface DataProviderContextType {
+interface DataContextType {
   tickers: Ticker[];
   loading: boolean;
   error: string | null;
 }
 
-const DataProviderContext = createContext<DataProviderContextType | undefined>(undefined);
-
-const ALL_MARKETS = [
-  'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA', 
-  'KRW-AVAX', 'KRW-DOT', 'KRW-POL', 'KRW-TRX', 'KRW-SHIB', 'KRW-ETC', 
-  'KRW-BCH', 'KRW-LINK'
-];
-
-const REFRESH_INTERVAL = process.env.NEXT_PUBLIC_REFRESH_INTERVAL 
-  ? parseInt(process.env.NEXT_PUBLIC_REFRESH_INTERVAL, 10) 
-  : 5000;
+const DataContext = createContext<DataContextType | undefined>(undefined);
 
 export const DataProvider = ({ children }: { children: ReactNode }) => {
-  const [tickers, setTickers] = useState<Ticker[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const fetchTickers = async () => {
-      try {
-        const response = await fetch(`/api/tickers?markets=${ALL_MARKETS.join(',')}`);
-        if (!response.ok) {
-          throw new Error(`Failed to fetch tickers: ${response.status}`);
-        }
-        const data = await response.json();
-        setTickers(data);
-        setError(null);
-      } catch (e) {
-        const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
-        setError(errorMessage);
-        console.error(errorMessage);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchTickers();
-    const interval = setInterval(fetchTickers, REFRESH_INTERVAL);
-
-    return () => clearInterval(interval);
-  }, []);
+  const { tickers, isLoading, isError } = useTickerData();
 
   return (
-    <DataProviderContext.Provider value={{ tickers, loading, error }}>
+    <DataContext.Provider value={{ tickers, loading: isLoading, error: isError ? 'Failed to load tickers' : null }}>
       {children}
-    </DataProviderContext.Provider>
+    </DataContext.Provider>
   );
 };
 
 export const useData = () => {
-  const context = useContext(DataProviderContext);
+  const context = useContext(DataContext);
   if (context === undefined) {
     throw new Error('useData must be used within a DataProvider');
   }

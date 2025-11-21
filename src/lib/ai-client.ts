@@ -2,7 +2,7 @@
  * AI 클라이언트 인터페이스 및 구현
  * Ollama, llama.cpp, KoboldCpp 등 다양한 백엔드를 지원
  */
-
+import { logAIInteraction } from './ai-logger';
 export interface AIGenerationOptions {
   model?: string;
   temperature?: number;
@@ -81,7 +81,22 @@ export class OllamaClient implements AIClient {
       }
 
       const data = await response.json();
-      return data.response || '';
+      const text = data.response || '';
+
+      await logAIInteraction({
+        type: 'analysis',
+        prompt,
+        response: text,
+        meta: {
+          model,
+          temperature,
+          maxTokens,
+          topP,
+          backend: 'ollama',
+        },
+      });
+
+      return text;
     } catch (error) {
       console.error('Ollama generation error:', error);
       throw error;
@@ -152,34 +167,88 @@ export function parseAIResponse(response: string): any {
 /**
  * 시세 분석 프롬프트 생성
  */
-export function createPriceAnalysisPrompt(
-  market: string,
-  currentPrice: number,
-  change24h: number,
-  rsi?: number,
-  macd?: { signal: string },
-  bollinger?: { position: string },
-  ma?: { short: number; long: number; cross?: string }
-): string {
+export interface PriceAnalysisContext {
+  market: string;
+  currentPrice: number;
+  change24h: number;
+  rsi?: number;
+  macd?: { signal: string };
+  bollinger?: { position: string; upper?: number; lower?: number; middle?: number };
+  ma?: { short: number; long: number; cross?: string };
+  volatility?: { range: number; targetPrice: number; isBreakout?: boolean };
+  momentum?: { priceMomentum: number; volumeMomentum: number; isStrong?: boolean };
+  sentiment?: { label: 'positive' | 'negative' | 'neutral'; score?: number };
+  volume?: { current?: number; average?: number; ratio?: number };
+}
+
+export function createPriceAnalysisPrompt(context: PriceAnalysisContext): string {
+  const {
+    market,
+    currentPrice,
+    change24h,
+    rsi,
+    macd,
+    bollinger,
+    ma,
+    volatility,
+    momentum,
+    sentiment,
+    volume,
+  } = context;
+
+  const metricLines = [
+    `코인: ${market}`,
+    `현재가: ${currentPrice.toLocaleString()}원`,
+    `24h 변동률: ${change24h.toFixed(2)}%`,
+    rsi !== undefined ? `RSI: ${rsi.toFixed(2)}` : null,
+    macd ? `MACD 신호: ${macd.signal}` : null,
+    bollinger
+      ? `볼린저 밴드: ${bollinger.position}${typeof bollinger.upper === 'number' && typeof bollinger.lower === 'number'
+          ? ` (상단 ${bollinger.upper.toLocaleString()}원 / 하단 ${bollinger.lower.toLocaleString()}원)`
+          : ''}`
+      : null,
+    ma
+      ? `이동평균선: 단기 ${ma.short}, 장기 ${ma.long}${ma.cross ? ` (${ma.cross})` : ''}`
+      : null,
+    volume && (volume.current || volume.ratio)
+      ? `거래량: 현재 ${volume.current?.toLocaleString() ?? 'N/A'} (${volume.ratio ? `${volume.ratio.toFixed(1)}%` : '평균 대비 데이터 없음'})`
+      : null,
+    sentiment
+      ? `뉴스/시장 심리: ${sentiment.label}${typeof sentiment.score === 'number' ? ` (점수: ${sentiment.score.toFixed(2)})` : ''}`
+      : null,
+  ].filter(Boolean).join('\n');
+
+  const strategyNotes: string[] = [];
+  if (volatility) {
+    strategyNotes.push(
+      `변동성 돌파: 범위 ${volatility.range.toLocaleString()}원, 목표 돌파가 ${volatility.targetPrice.toLocaleString()}원, 현재 돌파 여부: ${volatility.isBreakout ? '예' : '아니오'}`
+    );
+  }
+  if (momentum) {
+    strategyNotes.push(
+      `모멘텀: 가격 모멘텀 ${momentum.priceMomentum.toFixed(2)}%, 거래량 모멘텀 ${momentum.volumeMomentum.toFixed(2)}%, 강도 분류: ${momentum.isStrong ? '강함' : '보통'}`
+    );
+  }
+
+  const optionalStrategyContext = strategyNotes.length
+    ? `\n전략 맥락:\n${strategyNotes.map((note) => `- ${note}`).join('\n')}\n`
+    : '';
+
+  const extraInstruction = strategyNotes.length
+    ? `6. 전략별 판단: 위 전략 맥락(돌파 유효성, 모멘텀 지속 가능성 등)에 대한 의견과 AI가 권장하는 행동\n`
+    : '';
+
   return `
 코인 시세 분석 요청:
 
-코인: ${market}
-현재가: ${currentPrice.toLocaleString()}원
-24h 변동률: ${change24h.toFixed(2)}%
-${rsi !== undefined ? `RSI: ${rsi.toFixed(2)}` : ''}
-${macd ? `MACD: ${macd.signal}` : ''}
-${bollinger ? `볼린저 밴드: ${bollinger.position}` : ''}
-${ma ? `이동평균선: 단기 ${ma.short}, 장기 ${ma.long}${ma.cross ? ` (${ma.cross})` : ''}` : ''}
-
-위 정보를 기반으로 다음을 분석해주세요:
+${metricLines}
+${optionalStrategyContext}위 정보를 기반으로 다음을 분석해주세요:
 1. 현재 추세 (상승/하락/횡보)
 2. 추세 강도 (1-10)
 3. 매매 추천 (매수/매도/보유)
 4. 신뢰도 (0-1)
 5. 주요 지지선/저항선
-
-답변은 반드시 다음 JSON 형식으로 해주세요:
+${extraInstruction}답변은 반드시 다음 JSON 형식으로 해주세요:
 {
   "trend": "상승|하락|횡보",
   "strength": 1-10,

@@ -220,6 +220,46 @@ function initializeDatabase(database: Database.Database) {
     CREATE INDEX IF NOT EXISTS idx_notification_created_at
       ON notification_log(created_at);
   `);
+
+  // 기존 테이블에 누락된 컬럼 추가 (마이그레이션)
+  const notificationColumns: { name: string }[] = database.pragma('table_info(notification_log)') as any;
+  const notificationColumnNames = notificationColumns.map(c => c.name);
+
+  if (!notificationColumnNames.includes('message_hash')) {
+    try {
+      database.exec('ALTER TABLE notification_log ADD COLUMN message_hash TEXT');
+      console.log('[cache] Added message_hash column to notification_log table');
+    } catch (err) {
+      console.warn('[cache] Failed to add message_hash column (may already exist):', err);
+    }
+  }
+
+  if (!notificationColumnNames.includes('attempt_number')) {
+    try {
+      database.exec('ALTER TABLE notification_log ADD COLUMN attempt_number INTEGER DEFAULT 1');
+      console.log('[cache] Added attempt_number column to notification_log table');
+    } catch (err) {
+      console.warn('[cache] Failed to add attempt_number column (may already exist):', err);
+    }
+  }
+
+  if (!notificationColumnNames.includes('next_retry_at')) {
+    try {
+      database.exec('ALTER TABLE notification_log ADD COLUMN next_retry_at TIMESTAMP NULL');
+      console.log('[cache] Added next_retry_at column to notification_log table');
+    } catch (err) {
+      console.warn('[cache] Failed to add next_retry_at column (may already exist):', err);
+    }
+  }
+
+  // 인덱스 추가 (message_hash가 있는 경우)
+  if (notificationColumnNames.includes('message_hash') || notificationColumnNames.some(c => c.name === 'message_hash')) {
+    try {
+      database.exec('CREATE INDEX IF NOT EXISTS idx_notification_message_hash ON notification_log(message_hash)');
+    } catch (err) {
+      // 인덱스가 이미 존재할 수 있음
+    }
+  }
 }
 
 export interface CandleCacheData {
@@ -518,11 +558,17 @@ export async function getNewsWithCache(
   transaction();
 
   // 트랜잭션 커밋 후 실제 알림 전송 및 로그 기록
+  // 비동기로 실행하되 에러가 발생해도 메인 플로우에 영향을 주지 않도록 처리
   (async () => {
+    if (notifyQueue.length === 0) {
+      return;
+    }
+    
     for (const item of notifyQueue) {
       try {
         const telegram = await import('./telegram');
         const sent = await telegram.sendMessage(item.message, 'HTML');
+        
         logNotificationAttempt({
           transactionId: null,
           sourceType: 'news',
@@ -537,10 +583,15 @@ export async function getNewsWithCache(
         consoleLogNotification('NewsSend', { url: item.url, sent });
 
         if (sent) {
-          database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?').run(item.url);
+          try {
+            database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?').run(item.url);
+          } catch (dbErr) {
+            console.error('Failed to update news_cache notified status:', dbErr);
+          }
         }
       } catch (err) {
         console.error('News notification failed:', err);
+        const errorMessage = err instanceof Error ? err.message : String(err);
         logNotificationAttempt({
           transactionId: null,
           sourceType: 'news',
@@ -549,12 +600,15 @@ export async function getNewsWithCache(
           attemptNumber: 1,
           success: false,
           responseCode: null,
-          responseBody: err instanceof Error ? err.message : String(err),
+          responseBody: errorMessage,
         });
-        consoleLogNotification('NewsSendError', { url: item.url, error: err instanceof Error ? err.message : String(err) });
+        consoleLogNotification('NewsSendError', { url: item.url, error: errorMessage });
       }
     }
-  })();
+  })().catch(err => {
+    // 최상위 에러 핸들링 - 알림 실패가 전체 플로우를 막지 않도록
+    console.error('Unexpected error in news notification queue:', err);
+  });
 
   return freshData.map(article => ({
     ...article,
@@ -708,11 +762,12 @@ export function logNotificationAttempt(args: {
   responseBody?: string | null;
 }) {
   const database = getDatabase();
-  const stmt = database.prepare(`
-    INSERT INTO notification_log
-    (transaction_id, source_type, channel, payload, message_hash, attempt_number, success, response_code, response_body)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `);
+  
+  // 컬럼 존재 여부 확인
+  const columns = database.pragma('table_info(notification_log)') as Array<{ name: string }>;
+  const columnNames = columns.map(c => c.name);
+  const hasMessageHash = columnNames.includes('message_hash');
+  const hasAttemptNumber = columnNames.includes('attempt_number');
 
   // Truncate payload/responseBody to reasonable size to avoid DB bloat
   const maxLen = 2000;
@@ -721,17 +776,62 @@ export function logNotificationAttempt(args: {
   const msgHash = payloadStr ? crypto.createHash('sha256').update(payloadStr).digest('hex') : null;
   const attemptNumber = args.attemptNumber && args.attemptNumber > 0 ? args.attemptNumber : 1;
 
-  stmt.run(
-    args.transactionId || null,
-    args.sourceType,
-    args.channel,
-    payloadStr,
-    msgHash,
-    attemptNumber,
-    args.success ? 1 : 0,
-    args.responseCode || null,
-    responseBodyStr || null
-  );
+  try {
+    // 컬럼이 모두 있는 경우
+    if (hasMessageHash && hasAttemptNumber) {
+      const stmt = database.prepare(`
+        INSERT INTO notification_log
+        (transaction_id, source_type, channel, payload, message_hash, attempt_number, success, response_code, response_body)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run(
+        args.transactionId || null,
+        args.sourceType,
+        args.channel,
+        payloadStr,
+        msgHash,
+        attemptNumber,
+        args.success ? 1 : 0,
+        args.responseCode || null,
+        responseBodyStr
+      );
+    } else {
+      // 컬럼이 없는 경우 fallback (기존 스키마 호환)
+      const stmt = database.prepare(`
+        INSERT INTO notification_log
+        (transaction_id, source_type, channel, payload, success, response_code, response_body)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `);
+      stmt.run(
+        args.transactionId || null,
+        args.sourceType,
+        args.channel,
+        payloadStr,
+        args.success ? 1 : 0,
+        args.responseCode || null,
+        responseBodyStr
+      );
+      
+      // 컬럼이 없으면 마이그레이션 시도
+      if (!hasMessageHash || !hasAttemptNumber) {
+        console.warn('[cache] notification_log table missing columns, attempting migration...');
+        try {
+          if (!hasMessageHash) {
+            database.exec('ALTER TABLE notification_log ADD COLUMN message_hash TEXT');
+          }
+          if (!hasAttemptNumber) {
+            database.exec('ALTER TABLE notification_log ADD COLUMN attempt_number INTEGER DEFAULT 1');
+          }
+          console.log('[cache] Migration completed, please restart the server');
+        } catch (migrateErr) {
+          console.error('[cache] Migration failed:', migrateErr);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[cache] Failed to log notification attempt:', err);
+    // 에러가 발생해도 앱이 중단되지 않도록 처리
+  }
 }
 
 export function getNotificationLogs(limit: number = 100) {
@@ -821,8 +921,24 @@ export async function resendFailedNotifications(limit = 20) {
       // determine previous attempts for this message_hash
       let prevAttempt = 0;
       if (msgHash) {
-        const row = database.prepare('SELECT MAX(attempt_number) as maxAttempt FROM notification_log WHERE message_hash = ?').get(msgHash) as { maxAttempt?: number } | undefined;
-        prevAttempt = row && row.maxAttempt ? Number(row.maxAttempt) : 0;
+        // 컬럼 존재 여부 확인
+        const columns = database.pragma('table_info(notification_log)') as Array<{ name: string }>;
+        const columnNames = columns.map(c => c.name);
+        const hasMessageHash = columnNames.includes('message_hash');
+        const hasAttemptNumber = columnNames.includes('attempt_number');
+        
+        if (hasMessageHash && hasAttemptNumber) {
+          try {
+            const row = database.prepare('SELECT MAX(attempt_number) as maxAttempt FROM notification_log WHERE message_hash = ?').get(msgHash) as { maxAttempt?: number } | undefined;
+            prevAttempt = row && row.maxAttempt ? Number(row.maxAttempt) : 0;
+          } catch (err) {
+            console.warn('[cache] Failed to get previous attempt number:', err);
+            prevAttempt = 0;
+          }
+        } else {
+          // 컬럼이 없으면 기본값 사용
+          prevAttempt = 0;
+        }
       }
 
       const nextAttempt = prevAttempt + 1;

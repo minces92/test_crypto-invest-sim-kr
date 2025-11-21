@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Toaster } from "react-hot-toast";
 import "@primer/css/dist/primer.css";
 import "./globals.css";
 import { DataProvider } from "@/context/DataProviderContext";
@@ -23,7 +24,10 @@ export default function RootLayout({
       <body className={inter.className}>
         <DataProvider>
           <NewsProvider>
-            <PortfolioProvider>{children}</PortfolioProvider>
+            <PortfolioProvider>
+              {children}
+              <Toaster position="top-right" />
+            </PortfolioProvider>
           </NewsProvider>
         </DataProvider>
       </body>

@@ -12,7 +12,18 @@ export async function POST(request: Request) {
       macd,
       bollinger,
       ma,
+      volatility,
+      momentum,
+      sentiment,
+      volume,
     } = body;
+
+    if (!market || typeof currentPrice !== 'number' || typeof change24h !== 'number') {
+      return NextResponse.json(
+        { error: 'market, currentPrice, change24h are required' },
+        { status: 400 }
+      );
+    }
 
     // AI 클라이언트 생성
     const aiClient = createAIClient();
@@ -33,15 +44,19 @@ export async function POST(request: Request) {
     }
 
     // 프롬프트 생성
-    const prompt = createPriceAnalysisPrompt(
+    const prompt = createPriceAnalysisPrompt({
       market,
       currentPrice,
       change24h,
       rsi,
       macd,
       bollinger,
-      ma
-    );
+      ma,
+      volatility,
+      momentum,
+      sentiment,
+      volume,
+    });
 
     // AI 분석 수행
     const response = await aiClient.generate(prompt, {

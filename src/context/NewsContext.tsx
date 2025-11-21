@@ -1,6 +1,7 @@
 'use client';
 
-import React, { createContext, useState, useContext, ReactNode, useEffect } from 'react';
+import React, { createContext, useState, useContext, ReactNode, useEffect, useCallback, useRef } from 'react';
+import { useNewsData } from '@/hooks/useNewsData';
 
 interface Article {
   title: string;
@@ -23,46 +24,16 @@ const NewsContext = createContext<NewsContextType | undefined>(undefined);
 const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
 
 export const NewsProvider = ({ children }: { children: ReactNode }) => {
-  const [news, setNews] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { news, isLoading, isError, mutate } = useNewsData();
 
-  const fetchNews = async (forceRefresh: boolean = false) => {
-    // Only set loading to true on the initial load or a forced refresh
-    if (news.length === 0 || forceRefresh) {
-        setLoading(true);
+  const fetchNews = useCallback(async (forceRefresh: boolean = false) => {
+    if (forceRefresh) {
+      await mutate();
     }
-    try {
-      const url = forceRefresh ? '/api/news?refresh=true' : '/api/news';
-      const response = await fetch(url);
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => null);
-        throw new Error(`Failed to fetch news: ${response.status} ${errorData?.details || ''}`);
-      }
-      const data: Article[] = await response.json();
-      setNews(data);
-      setError(null);
-    } catch (e) {
-      const errorMessage = e instanceof Error ? e.message : 'An unknown error occurred';
-      setError(errorMessage);
-      console.error("Error fetching news:", errorMessage);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    // Initial fetch
-    fetchNews(false);
-
-    // Set up interval for background refreshing
-    const interval = setInterval(() => fetchNews(true), REFRESH_INTERVAL);
-
-    return () => clearInterval(interval);
-  }, []);
+  }, [mutate]);
 
   return (
-    <NewsContext.Provider value={{ news, loading, error, fetchNews }}>
+    <NewsContext.Provider value={{ news, loading: isLoading, error: isError ? 'Failed to load news' : null, fetchNews }}>
       {children}
     </NewsContext.Provider>
   );

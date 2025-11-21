@@ -26,8 +26,8 @@ export default function NewsFeed() {
     <div className="Box mt-4 border">
       <div className="Box-header d-flex flex-justify-between flex-items-center">
         <h2 className="Box-title">암호화폐 뉴스</h2>
-        <button 
-          className="btn btn-sm" 
+        <button
+          className="btn btn-sm"
           onClick={() => fetchNews(true)}
           disabled={loading}
         >
@@ -36,7 +36,19 @@ export default function NewsFeed() {
       </div>
       <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
         {loading && news.length === 0 && <p className="text-center p-3">뉴스 로딩 중...</p>}
-        {error && <p className="text-center color-fg-danger p-3">뉴스를 불러오는 데 실패했습니다: {error}</p>}
+        {error && (
+          <div className="text-center p-3">
+            <p className="color-fg-danger mb-2">뉴스를 불러오는 데 실패했습니다.</p>
+            {error.includes('MISSING_API_KEY') || error.includes('503') ? (
+              <div className="flash flash-warn">
+                <strong>설정 필요:</strong> <code>NEWS_API_KEY</code>가 설정되지 않았습니다.<br />
+                <code>.env.local</code> 파일에 NewsAPI 키를 추가해주세요.
+              </div>
+            ) : (
+              <p className="text-small color-fg-muted">{error}</p>
+            )}
+          </div>
+        )}
         {!loading && !error && news.length === 0 && <p className="text-center color-fg-muted p-3">표시할 뉴스가 없습니다.</p>}
         {news.length > 0 && (
           <ul className="list-style-none p-0 m-0">

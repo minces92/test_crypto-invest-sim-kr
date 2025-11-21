@@ -50,7 +50,8 @@
 NEXT_PUBLIC_USE_AI_VERIFICATION=true
 AI_BACKEND=ollama
 AI_BASE_URL=http://localhost:11434
-AI_MODEL_ANALYSIS=gemma3:4b
+AI_MODEL_ANALYSIS=mistral  # 기본값, 필요 시 gemma3:4b 등으로 교체
+AI_LOG_ENABLED=true        # 프롬프트/응답을 logs/ai-debug.log에 저장 (선택)
 ```
 
 ### Ollama 확인
@@ -69,6 +70,12 @@ ollama run gemma3:4b "안녕하세요"
    - **변동성 돌파**: 승수 (0.1-2.0, 기본값: 0.5)
    - **모멘텀**: 기간 (5-30일), 임계값 (1-20%, 기본값: 5%)
 4. 전략 추가 클릭
+
+### 디버깅 & 테스트
+- `node scripts/test-strategies.js` — /api/ai/analyze에 변동성·모멘텀 시나리오를 보내 통합 응답을 확인
+- `AI_LOG_ENABLED=true` 설정 시 `logs/ai-debug.log`에 프롬프트/응답이 JSONL로 기록되어 프롬프트 튜닝에 활용 가능
+- `AutoTrader`에서 추천/커스텀 탭을 전환하며 모바일에서도 손쉽게 전략을 관리할 수 있습니다.
+- `ChartComponent` 우측 상단의 테마 토글로 다크↔라이트 차트를 전환할 수 있습니다.
 
 ## 📈 AI 검증 작동 방식
 

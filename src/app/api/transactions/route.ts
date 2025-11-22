@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getTransactions, saveTransaction } from '@/lib/cache';
+import { calculatePortfolioState } from '@/lib/utils';
 
 export async function GET() {
   try {
@@ -176,14 +177,8 @@ export async function POST(request: Request) {
         
         // Calculate current cash balance
         const initialCashSetting = cache.getSetting('initial_cash');
-        let calculatedCash = initialCashSetting ? Number(initialCashSetting) : 1000000;
-        for (const tx of allTx) {
-          if (tx.type === 'buy') {
-            calculatedCash -= tx.price * tx.amount;
-          } else { // sell
-            calculatedCash += tx.price * tx.amount;
-          }
-        }
+        const initialCash = initialCashSetting ? Number(initialCashSetting) : 1000000;
+        const { cash: calculatedCash } = calculatePortfolioState(allTx, initialCash);
         const cashBalanceText = `\n<b>현금 잔액:</b> ${Math.round(calculatedCash).toLocaleString('ko-KR')} 원`;
 
         const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}${cashBalanceText}\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;

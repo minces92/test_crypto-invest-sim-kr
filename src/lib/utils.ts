@@ -1,3 +1,5 @@
+import type { Transaction, Asset } from './types';
+
 interface Candle {
   trade_price: number;
 }
@@ -226,3 +228,47 @@ export function calculateATR(data: CandleData[], period: number = 14): number[] 
   
   return atr;
 }
+
+export function calculatePortfolioState(
+  transactions: Transaction[],
+  initialCash: number
+): { assets: Asset[]; cash: number } {
+  let calculatedCash = initialCash;
+  const calculatedAssets: { [market: string]: Asset } = {};
+
+  // Process transactions chronologically
+  const sortedTransactions = [...transactions].sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+  for (const tx of sortedTransactions) {
+    if (tx.type === 'buy') {
+      calculatedCash -= tx.price * tx.amount;
+      const existingAsset = calculatedAssets[tx.market];
+      if (existingAsset) {
+        const totalQuantity = existingAsset.quantity + tx.amount;
+        const totalCost = (existingAsset.avg_buy_price * existingAsset.quantity) + (tx.price * tx.amount);
+        calculatedAssets[tx.market] = {
+          ...existingAsset,
+          quantity: totalQuantity,
+          avg_buy_price: totalCost / totalQuantity,
+        };
+      } else {
+        calculatedAssets[tx.market] = {
+          market: tx.market,
+          quantity: tx.amount,
+          avg_buy_price: tx.price,
+        };
+      }
+    } else { // sell
+      calculatedCash += tx.price * tx.amount;
+      if (calculatedAssets[tx.market]) {
+        calculatedAssets[tx.market].quantity -= tx.amount;
+      }
+    }
+  }
+
+  return {
+    assets: Object.values(calculatedAssets).filter(a => a.quantity > 0.00001),
+    cash: calculatedCash,
+  };
+}
+

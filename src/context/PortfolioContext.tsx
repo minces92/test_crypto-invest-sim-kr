@@ -3,27 +3,13 @@
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
 import { sendMessage } from '@/lib/telegram';
 import { useData } from './DataProviderContext';
-import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
+import { calculateSMA, calculateRSI, calculateBollingerBands, calculatePortfolioState } from '@/lib/utils';
 import toast from 'react-hot-toast';
 
 
+import { Asset, Transaction } from '@/lib/types';
+
 // --- Interface 정의들 ---
-interface Asset {
-  market: string;
-  quantity: number;
-  avg_buy_price: number;
-}
-interface Transaction {
-  id: string;
-  type: 'buy' | 'sell';
-  market: string;
-  price: number;
-  amount: number;
-  timestamp: string;
-  source: string; // 'manual' or strategy ID
-  isAuto?: boolean;
-  strategyType?: string;
-}
 interface DcaConfig {
   strategyType: 'dca';
   market: string;
@@ -168,46 +154,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const getPortfolioState = (currentTransactions: Transaction[], initialCash: number) => {
-    let calculatedCash = initialCash;
-    const calculatedAssets: { [market: string]: Asset } = {};
-
-    // Process transactions in reverse order (oldest first)
-    for (let i = currentTransactions.length - 1; i >= 0; i--) {
-      const tx = currentTransactions[i];
-      if (tx.type === 'buy') {
-        calculatedCash -= tx.price * tx.amount;
-        if (calculatedAssets[tx.market]) {
-          const existingAsset = calculatedAssets[tx.market];
-          const totalQuantity = existingAsset.quantity + tx.amount;
-          const totalCost = (existingAsset.avg_buy_price * existingAsset.quantity) + (tx.price * tx.amount);
-          calculatedAssets[tx.market] = {
-            ...existingAsset,
-            quantity: totalQuantity,
-            avg_buy_price: totalCost / totalQuantity,
-          };
-        } else {
-          calculatedAssets[tx.market] = {
-            market: tx.market,
-            quantity: tx.amount,
-            avg_buy_price: tx.price,
-          };
-        }
-      } else { // sell
-        calculatedCash += tx.price * tx.amount;
-        if (calculatedAssets[tx.market]) {
-          calculatedAssets[tx.market].quantity -= tx.amount;
-        }
-      }
-    }
-
-    return {
-      assets: Object.values(calculatedAssets).filter(a => a.quantity > 0.00001),
-      cash: calculatedCash,
-    };
-  };
-
-  const { assets, cash } = useMemo(() => getPortfolioState(transactions, initialCashValue), [transactions, initialCashValue]);
+  const { assets, cash } = useMemo(() => calculatePortfolioState(transactions, initialCashValue), [transactions, initialCashValue]);
 
   const addTransaction = async (
     type: 'buy' | 'sell',
@@ -273,7 +220,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
   const buyAsset = (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): boolean => {
     const cost = price * amount;
-    const { cash: currentCash } = getPortfolioState(transactions);
+    const { cash: currentCash } = calculatePortfolioState(transactions, initialCashValue);
 
     // 최소 거래 금액 (5000원) 체크
     if (cost < 5000) {
@@ -293,7 +240,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   };
 
   const sellAsset = (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): boolean => {
-    const { assets: currentAssets } = getPortfolioState(transactions);
+    const { assets: currentAssets } = calculatePortfolioState(transactions, initialCashValue);
     const existingAsset = currentAssets.find(a => a.market === market);
 
     // 매도 가능 수량 체크 (0.00001와 같은 작은 오차 허용)

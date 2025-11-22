@@ -260,6 +260,21 @@ function initializeDatabase(database: Database.Database) {
       // 인덱스가 이미 존재할 수 있음
     }
   }
+
+  // Job Queue 테이블
+  database.exec(`
+    CREATE TABLE IF NOT EXISTS jobs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      payload TEXT,
+      status TEXT NOT NULL DEFAULT 'pending', -- pending, processing, completed, failed
+      result TEXT,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_jobs_status_type ON jobs(status, type);
+  `);
 }
 
 export interface CandleCacheData {

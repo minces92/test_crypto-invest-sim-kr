@@ -6,7 +6,7 @@ export async function GET() {
     const settings = getAllSettings();
     // Ensure initial_cash exists and has a default value if not set
     if (!settings.initial_cash) {
-        const defaultValue = '1000000';
+        const defaultValue = process.env.NEXT_PUBLIC_DEFAULT_INITIAL_CASH || '1000000';
         updateSetting('initial_cash', defaultValue);
         settings.initial_cash = defaultValue;
         console.log('Initialized default initial_cash setting.');

@@ -84,7 +84,7 @@ const PortfolioContext = createContext<PortfolioContextType | undefined>(undefin
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const { data: settingsData, error: settingsError } = useSWR('/api/settings', fetcher);
-  const initialCashValue = settingsData?.initial_cash ? Number(settingsData.initial_cash) : 1000000;
+  const initialCashValue = settingsData?.initial_cash ? Number(settingsData.initial_cash) : Number(process.env.NEXT_PUBLIC_DEFAULT_INITIAL_CASH || '1000000');
 
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);

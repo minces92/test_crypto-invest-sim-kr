@@ -1,9 +1,10 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+require('dotenv').config(); // Load environment variables from .env file
 
 // This is a one-time migration script.
-// We use the value directly for simplicity, avoiding TS/JS module issues.
-const DEFAULT_INITIAL_CASH = 1000000;
+// We use the value from environment variable, or a fallback.
+const DEFAULT_INITIAL_CASH = process.env.NEXT_PUBLIC_DEFAULT_INITIAL_CASH || '1000000';
 
 const dbPath = path.join(__dirname, '..', 'crypto_cache.db');
 const db = new Database(dbPath);

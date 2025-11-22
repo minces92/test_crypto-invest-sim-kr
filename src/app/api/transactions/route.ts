@@ -109,7 +109,7 @@ export async function POST(request: Request) {
                 });
                 try {
                   const aiResponse = await aiClient.generate(prompt, {
-                    model: metadata.model,
+                    model: process.env.AI_MODEL_ANALYSIS || metadata.model,
                     temperature: metadata.temperature,
                     maxTokens: metadata.maxTokens,
                   });

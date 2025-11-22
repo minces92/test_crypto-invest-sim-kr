@@ -85,7 +85,7 @@ export async function POST(request: Request) {
             throw new Error('AI client not available');
         }
         const response = await aiClient.generate(prompt, {
-            model: metadata.model,
+            model: process.env.AI_MODEL_RECOMMENDATION || metadata.model,
             temperature: metadata.temperature,
             maxTokens: metadata.maxTokens,
         });

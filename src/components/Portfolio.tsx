@@ -4,6 +4,7 @@ import { usePortfolio } from '@/context/PortfolioContext';
 import { useData } from '@/context/DataProviderContext';
 import { useState, useEffect } from 'react';
 import toast from 'react-hot-toast';
+import { useSWRConfig } from 'swr';
 
 interface Ticker {
   market: string;
@@ -17,6 +18,7 @@ interface PortfolioProps {
 export default function Portfolio({ handleOpenModal }: PortfolioProps) {
   const { cash, assets } = usePortfolio();
   const { tickers } = useData();
+  const { mutate } = useSWRConfig();
   const [initialCashInput, setInitialCashInput] = useState('');
   const [isEditing, setIsEditing] = useState(false);
 
@@ -54,10 +56,10 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
       });
 
       if (response.ok) {
-        toast.success('초기 자본금이 저장되었습니다. 페이지를 새로고침합니다.');
+        toast.success('초기 자본금이 저장되었습니다.');
         setIsEditing(false);
-        // Reload the page to apply the new initial cash value everywhere
-        setTimeout(() => window.location.reload(), 1000);
+        // Trigger a re-fetch of the settings data, which will update the context
+        mutate('/api/settings');
       } else {
         const errorData = await response.json();
         toast.error(`저장 실패: ${errorData.error || '알 수 없는 오류'}`);

@@ -1,6 +1,8 @@
 'use client';
 
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
+import useSWR from 'swr';
+import { fetcher } from '@/lib/fetcher';
 import { sendMessage } from '@/lib/telegram';
 import { useData } from './DataProviderContext';
 import { calculateSMA, calculateRSI, calculateBollingerBands, calculatePortfolioState } from '@/lib/utils';
@@ -81,7 +83,9 @@ const PortfolioContext = createContext<PortfolioContextType | undefined>(undefin
 // INITIAL_CASH is now imported from '@/lib/constants'
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
-  const [initialCashValue, setInitialCashValue] = useState(1000000); // Default value, will be updated from API
+  const { data: settingsData, error: settingsError } = useSWR('/api/settings', fetcher);
+  const initialCashValue = settingsData?.initial_cash ? Number(settingsData.initial_cash) : 1000000;
+
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const { tickers } = useData();
@@ -99,18 +103,6 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   }, [transactions]);
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      try {
-        const response = await fetch('/api/settings');
-        if (response.ok) {
-          const data = await response.json();
-          setInitialCashValue(Number(data.initial_cash) || 1000000);
-        }
-      } catch (error) {
-        console.error('Error fetching settings, using default initial cash:', error);
-      }
-    };
-
     const fetchTransactions = async () => {
       try {
         const response = await fetch('/api/transactions');
@@ -146,7 +138,6 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       }
     };
 
-    fetchSettings();
     fetchTransactions();
     fetchStrategies();
 

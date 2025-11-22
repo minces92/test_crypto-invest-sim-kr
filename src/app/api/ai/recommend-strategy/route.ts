@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server';
 import { createAIClient } from '@/lib/ai-client';
 import { getCandlesWithCache } from '@/lib/cache';
 import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
+import { loadPrompt, fillPromptTemplate } from '@/lib/prompt-loader';
 
 function _parseJsonResponse(text: string): any {
   // First, try to find a JSON block enclosed in ```json ... ```
@@ -67,43 +68,27 @@ export async function POST(request: Request) {
         const currentUpper = bb.upper[bb.upper.length - 1];
         const currentLower = bb.lower[bb.lower.length - 1];
 
-        // 3. Construct prompt for AI
-        const prompt = `
-    Analyze the following market data for ${market} and recommend a trading strategy.
-    
-    Current Price: ${currentPrice}
-    RSI (14): ${currentRSI?.toFixed(2)}
-    SMA (20): ${currentSMA?.toFixed(2)}
-    Bollinger Bands: Upper ${currentUpper?.toFixed(2)}, Lower ${currentLower?.toFixed(2)}
-    
-    Available Strategies:
-    1. MA (Moving Average): Best for trending markets.
-    2. RSI: Best for oscillating markets (overbought/oversold).
-    3. Bollinger Bands: Best for volatility trading.
-    
-    Based on the technical indicators, which strategy would be most effective right now?
-    Provide the response in JSON format with the following structure. Ensure parameter names match exactly as specified below for each strategy type:
-    {
-      "recommendedStrategy": "ma" | "rsi" | "bband" | "news" | "volatility" | "momentum",
-      "reasoning": "Short explanation in Korean",
-      "parameters": {
-        // Suggested parameters for the chosen strategy.
-        // For "ma": { "shortPeriod": number, "longPeriod": number }
-        // For "rsi": { "period": number, "buyThreshold": number, "sellThreshold": number }
-        // For "bband": { "period": number, "multiplier": number }
-        // For "news": { "sentimentThreshold": "positive" | "negative" }
-        // For "volatility": { "multiplier": number }
-        // For "momentum": { "period": number, "threshold": number }
-      }
-    }
-    `;
+        // 3. Load and fill prompt for AI
+        const { metadata, template } = await loadPrompt('recommend-strategy');
+        const prompt = fillPromptTemplate(template, {
+            market,
+            currentPrice,
+            currentRSI: currentRSI?.toFixed(2),
+            currentSMA: currentSMA?.toFixed(2),
+            currentUpper: currentUpper?.toFixed(2),
+            currentLower: currentLower?.toFixed(2),
+        });
 
         // 4. Call AI
         const aiClient = createAIClient();
         if (!aiClient) {
             throw new Error('AI client not available');
         }
-        const response = await aiClient.generate(prompt);
+        const response = await aiClient.generate(prompt, {
+            model: metadata.model,
+            temperature: metadata.temperature,
+            maxTokens: metadata.maxTokens,
+        });
 
         // 5. Parse AI response
         const recommendation = _parseJsonResponse(response);

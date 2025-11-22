@@ -566,21 +566,16 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         };
 
         if (isGlobal) {
-          // iterate all tickers (throttle to avoid bursting the news API)
-          for (let i = 0; i < currentTickers.length; i++) {
-            const t = currentTickers[i];
-            // small delay to avoid calling the news API for all markets at once
-            // note: setTimeout inside loop would be non-blocking; use sequential await to keep it simple
-            // we keep it simple here and call sequentially
-            // skip markets that are not KRW pairs
-            if (!t.market.startsWith('KRW-')) continue;
-            // process each market sequentially
-            // eslint-disable-next-line no-await-in-loop
-            await processMarket(t.market);
+          const krwTickers = currentTickers.filter(t => t.market.startsWith('KRW-'));
+          
+          // Process in chunks to avoid overwhelming the API
+          const chunkSize = 5; 
+          for (let i = 0; i < krwTickers.length; i += chunkSize) {
+              const chunk = krwTickers.slice(i, i + chunkSize);
+              const promises = chunk.map(t => processMarket(t.market));
+              await Promise.all(promises);
           }
         } else {
-          // specific market
-          // eslint-disable-next-line no-await-in-loop
           await processMarket(strategy.market);
         }
       } catch (error) { console.error('News 전략 실행 실패:', error); }

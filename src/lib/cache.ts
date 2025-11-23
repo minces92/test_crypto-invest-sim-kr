@@ -1122,9 +1122,68 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS news_cache;
     DROP TABLE IF EXISTS transaction_analysis_cache;
     DROP TABLE IF EXISTS transactions;
+    DROP TABLE IF EXISTS jobs;
   `);
   
   // 테이블 재생성
   initializeDatabase(database);
+}
+
+/**
+ * Job Queue에 새로운 작업을 추가합니다.
+ * @param type - 작업 유형 (e.g., 'analyze_transaction')
+ * @param payload - 작업에 필요한 데이터
+ * @returns 생성된 작업의 ID
+ */
+export function addJob(type: string, payload: object): number {
+  const database = getDatabase();
+  const stmt = database.prepare(
+    'INSERT INTO jobs (type, payload) VALUES (?, ?)'
+  );
+  const result = stmt.run(type, JSON.stringify(payload));
+  return result.lastInsertRowid as number;
+}
+
+/**
+ * 처리할 작업을 가져옵니다.
+ * @param type - 작업 유형
+ * @param limit - 가져올 최대 작업 수
+ * @returns 작업 배열
+ */
+export function getPendingJobs(type: string, limit: number = 10): any[] {
+  const database = getDatabase();
+  return database
+    .prepare(
+      `SELECT * FROM jobs WHERE type = ? AND status = 'pending' ORDER BY created_at ASC LIMIT ?`
+    )
+    .all(type, limit);
+}
+
+/**
+ * 작업 상태를 'processing'으로 변경합니다.
+ * @param jobId - 작업 ID
+ */
+export function startJob(jobId: number): void {
+  const database = getDatabase();
+  database
+    .prepare(
+      `UPDATE jobs SET status = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = ?`
+    )
+    .run(jobId);
+}
+
+/**
+ * 작업 상태를 업데이트합니다.
+ * @param jobId - 작업 ID
+ * @param status - 새로운 상태 ('completed' or 'failed')
+ * @param result - 작업 결과 또는 에러 메시지
+ */
+export function updateJobStatus(jobId: number, status: 'completed' | 'failed', result: object): void {
+  const database = getDatabase();
+  database
+    .prepare(
+      'UPDATE jobs SET status = ?, result = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
+    )
+    .run(status, JSON.stringify(result), jobId);
 }
 

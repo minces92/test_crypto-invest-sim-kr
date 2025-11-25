@@ -10,9 +10,16 @@ export async function POST(request: Request) {
     const logs = cache.getNotificationLogs(1000);
     const entry = logs.find((l: any) => l.id === id);
     if (!entry) return NextResponse.json({ error: 'log entry not found' }, { status: 404 });
-
     try {
+      const body = await request.json();
+      const force = !!body.force;
       const telegram = await import('@/lib/telegram');
+
+      // If not forced and nextRetryAt is in the future, refuse
+      if (!force && entry.nextRetryAt && new Date(entry.nextRetryAt) > new Date()) {
+        return NextResponse.json({ ok: false, error: 'scheduled', nextRetryAt: entry.nextRetryAt }, { status: 400 });
+      }
+
       const sent = await telegram.sendMessage(entry.payload, 'HTML');
 
       cache.logNotificationAttempt({

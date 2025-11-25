@@ -19,6 +19,7 @@ import React, { useEffect, useState } from 'react';
 export default function NotificationLogs({ onClose }: { onClose?: () => void }) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState<Record<number, boolean>>({});
 
   const fetchLogs = async () => {
     setLoading(true);
@@ -59,7 +60,16 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
               </div>
               <div style={{ fontSize: 14 }}>{l.transactionId ? `TX: ${l.transactionId}` : ''}</div>
               <div style={{ fontSize: 12, color: '#333', whiteSpace: 'pre-wrap', marginTop: 6 }}>{l.payload?.slice(0, 200)}</div>
-              <div style={{ fontSize: 12, color: '#777', marginTop: 6 }}>resp: {l.responseCode} {l.responseBody ? `| ${l.responseBody.slice(0, 100)}` : ''} {l.attemptNumber ? `| 시도: ${l.attemptNumber}` : ''}</div>
+              <div style={{ fontSize: 12, color: '#777', marginTop: 6 }}>
+                resp: {l.responseCode} {l.attemptNumber ? `| 시도: ${l.attemptNumber}` : ''}
+                {l.responseBody ? (
+                  <>
+                    {' '}| {expanded[l.id] ? l.responseBody : `${l.responseBody.slice(0, 120)}${l.responseBody.length > 120 ? '...' : ''}`}
+                    {' '}
+                    <button className="btn" style={{ marginLeft: 6 }} onClick={() => setExpanded(prev => ({ ...prev, [l.id]: !prev[l.id] }))}>{expanded[l.id] ? '접기' : '전체'}</button>
+                  </>
+                ) : ''}
+              </div>
               <div style={{ marginTop: 6 }}>
                 <button
                   className="btn"
@@ -73,7 +83,6 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
                       });
                       const data = await res.json();
                       if (data.ok) {
-                        // refresh logs
                         fetchLogs();
                       } else {
                         console.error('Retry failed', data);
@@ -82,9 +91,25 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
                       console.error('Retry request error', err);
                     }
                   }}
-                >
-                  {l.nextRetryAt && new Date(l.nextRetryAt) > new Date() ? '예약됨' : '재전송'}
-                </button>
+                >{l.nextRetryAt && new Date(l.nextRetryAt) > new Date() ? '예약됨' : '재전송'}</button>
+
+                <button
+                  className="btn"
+                  style={{ marginLeft: 8 }}
+                  onClick={async () => {
+                    try {
+                      const res = await fetch('/api/notification-logs/retry', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ id: l.id, force: true }),
+                      });
+                      const data = await res.json();
+                      if (data.ok) fetchLogs(); else console.error('Force retry failed', data);
+                    } catch (err) {
+                      console.error('Force retry request error', err);
+                    }
+                  }}
+                >강제 재전송</button>
               </div>
             </li>
           ))}

@@ -4,6 +4,8 @@ import { Toaster } from "react-hot-toast";
 import "@primer/css/dist/primer.css";
 import "./globals.css";
 import { DataProvider } from "@/context/DataProviderContext";
+// ensure server-side background workers start when Next renders the root layout
+import '@/lib/server-init';
 import { PortfolioProvider } from "@/context/PortfolioContext";
 import { NewsProvider } from "@/context/NewsContext";
 

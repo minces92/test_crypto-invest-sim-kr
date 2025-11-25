@@ -48,6 +48,7 @@ npm run dev
 5. Confirm logs and DB state
 
 - GET http://localhost:3000/api/notification-logs to inspect records. Successful attempts should have `success: true` and show `createdAtKst`.
+   - Failed attempts will now include a `nextRetryAt` (ISO timestamp) which indicates when the worker will next attempt to resend the message. The UI (`NotificationLogs`) shows this as "다음 재시도" and disables manual retry until that time.
 - Query the `transactions` table (e.g., open `crypto_cache.db` with a sqlite viewer) and check `notification_sent` for the transaction is 1.
 
 ### Quick API examples (curl)
@@ -75,6 +76,15 @@ curl -sS "http://localhost:3000/api/test-telegram/debug?chatId=123456789" | jq '
 
 - Check server console for repeated `[telegram]` logs with the same payload. It means multiple notification triggers happened; check if client also sends messages directly (older code) — client should not call Telegram directly anymore.
 - Check notification_log for multiple entries with the same payload and different timestamps. One failed attempt will be retried; successful attempt should stop resends.
+
+## Retry/backoff policy (현재 구현)
+
+- 재시도 대상: `notification_log` 테이블에서 `success = 0` 이고 `next_retry_at IS NULL` 또는 `next_retry_at <= 현재 시각` 인 항목만 처리됩니다.
+- 최대 재시도 횟수: 5회 (초기 시도 포함하면 실제 시도 횟수는 최대 5번)
+- 백오프: 기본 지연(base) 30초에 지수적으로 증가합니다. 예: 1회 실패 -> 30s, 2회 실패 -> 60s, 3회 실패 -> 120s ...
+- `nextRetryAt`은 실패 시 계산되어 로그에 기록됩니다. 재시도 성공 시 해당 트랜잭션의 `notification_sent`이 1로 설정됩니다.
+
+이 정책은 `src/lib/cache.ts`의 `resendFailedNotifications`와 `logNotificationAttempt`에서 구현되어 있습니다.
 
 ## Git push steps
 

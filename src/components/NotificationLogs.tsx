@@ -13,19 +13,12 @@ import React, { useEffect, useState } from 'react';
   attemptNumber?: number;
   createdAt: string;
     createdAtKst?: string;
+    nextRetryAt?: string | null;
 }
 
 export default function NotificationLogs({ onClose }: { onClose?: () => void }) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
-  const [retryingId, setRetryingId] = useState<number | null>(null);
-
-  useEffect(() => {
-    if (!feedback) return;
-    const timer = setTimeout(() => setFeedback(null), 4000);
-    return () => clearTimeout(timer);
-  }, [feedback]);
 
   const fetchLogs = async () => {
     setLoading(true);
@@ -53,31 +46,16 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
           <button className="btn" onClick={() => onClose && onClose()}>닫기</button>
         </div>
       </div>
-      {feedback && (
-        <div
-          className={`p-2 mb-2 rounded-2 ${
-            feedback.type === 'success' ? 'color-bg-subtle color-fg-success' : 'color-bg-subtle color-fg-danger'
-          }`}
-          role="status"
-          aria-live="polite"
-        >
-          {feedback.message}
-        </div>
-      )}
-      <div style={{ maxHeight: 320, overflow: 'auto' }}>
+      <div style={{ maxHeight: 300, overflow: 'auto' }}>
         {loading && <div className="p-3">로딩 중...</div>}
         {!loading && logs.length === 0 && <div className="p-3">최근 알림 이력이 없습니다.</div>}
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {logs.map(l => (
             <li key={l.id} style={{ borderBottom: '1px solid #eee', padding: '8px' }}>
               <div style={{ fontSize: 12, color: '#555' }}>
-                <span
-                  className={`px-2 py-1 rounded-2 text-small ${l.success ? 'color-bg-subtle color-fg-success' : 'color-bg-subtle color-fg-danger'}`}
-                  style={{ fontWeight: 600 }}
-                >
-                  {l.success ? '성공' : '실패'}
-                </span>
+                <strong>{l.success ? '성공' : '실패'}</strong>
                 {' '}| {l.sourceType} | {l.channel} | {l.createdAtKst ? l.createdAtKst : new Date(l.createdAt).toLocaleString()}
+                {l.nextRetryAt ? ` | 다음 재시도: ${new Date(l.nextRetryAt).toLocaleString()}` : ''}
               </div>
               <div style={{ fontSize: 14 }}>{l.transactionId ? `TX: ${l.transactionId}` : ''}</div>
               <div style={{ fontSize: 12, color: '#333', whiteSpace: 'pre-wrap', marginTop: 6 }}>{l.payload?.slice(0, 200)}</div>
@@ -85,9 +63,8 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
               <div style={{ marginTop: 6 }}>
                 <button
                   className="btn"
-                  disabled={retryingId === l.id}
+                  disabled={!!(l.nextRetryAt && new Date(l.nextRetryAt) > new Date())}
                   onClick={async () => {
-                    setRetryingId(l.id);
                     try {
                       const res = await fetch('/api/notification-logs/retry', {
                         method: 'POST',
@@ -96,20 +73,17 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
                       });
                       const data = await res.json();
                       if (data.ok) {
-                        setFeedback({ type: 'success', message: '재전송이 요청되었습니다. 잠시 후 로그를 확인하세요.' });
+                        // refresh logs
                         fetchLogs();
                       } else {
-                        setFeedback({ type: 'error', message: data.error || '재전송에 실패했습니다.' });
+                        console.error('Retry failed', data);
                       }
                     } catch (err) {
                       console.error('Retry request error', err);
-                      setFeedback({ type: 'error', message: '재전송 요청 중 오류가 발생했습니다.' });
-                    } finally {
-                      setRetryingId(null);
                     }
                   }}
                 >
-                  {retryingId === l.id ? '전송 중...' : '재전송'}
+                  {l.nextRetryAt && new Date(l.nextRetryAt) > new Date() ? '예약됨' : '재전송'}
                 </button>
               </div>
             </li>

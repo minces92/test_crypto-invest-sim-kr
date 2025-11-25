@@ -6,6 +6,8 @@ This application can send real-time notifications for new trades and significant
 
 - **Trade Notifications**: Every time a new trade (buy or sell) is executed, either manually or by an auto-trading strategy, a detailed notification is sent to your specified Telegram chat.
 - **News Notifications**: The system periodically fetches cryptocurrency news. When a new article is identified as significant (classified with 'positive' or 'negative' sentiment), a notification is sent. This helps you stay on top of market-moving news. Duplicate news notifications are automatically prevented.
+  
+  Note: By default the system searches for a set of common crypto keywords (English and Korean). The default query now includes: `cryptocurrency`, `bitcoin`, `ethereum`, and Korean keywords `암호화폐`, `코인`.
 
 ## Configuration
 

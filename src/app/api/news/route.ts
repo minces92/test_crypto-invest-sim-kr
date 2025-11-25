@@ -4,7 +4,8 @@ import { getNewsWithCache } from '@/lib/cache';
 export async function GET(request: Request) {
   try {
     const { searchParams } = new URL(request.url);
-    const query = searchParams.get('query') || 'cryptocurrency bitcoin ethereum';
+  // include common English and Korean crypto-related keywords by default
+  const query = searchParams.get('query') || 'cryptocurrency bitcoin ethereum 암호화폐 코인';
     const language = searchParams.get('language') || 'ko';
     const forceRefresh = searchParams.get('refresh') === 'true';
 

@@ -53,6 +53,20 @@ async function fetchWithRetries(apiUrl: string, maxAttempts = 4, baseDelayMs = 5
   }
 }
 
+/**
+ * Simple fetch wrapper with AbortController-based timeout.
+ */
+async function fetchWithTimeout(url: string, options: any = {}, timeoutMs: number = 5000) {
+  const controller = new AbortController();
+  const id = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { ...options, signal: controller.signal });
+    return res;
+  } finally {
+    clearTimeout(id);
+  }
+}
+
 const dbPath = path.join(process.cwd(), 'crypto_cache.db');
 
 // 데이터베이스 초기화
@@ -219,61 +233,6 @@ function initializeDatabase(database: Database.Database) {
 
     CREATE INDEX IF NOT EXISTS idx_notification_created_at
       ON notification_log(created_at);
-  `);
-
-  // 기존 테이블에 누락된 컬럼 추가 (마이그레이션)
-  const notificationColumns: { name: string }[] = database.pragma('table_info(notification_log)') as any;
-  const notificationColumnNames = notificationColumns.map(c => c.name);
-
-  if (!notificationColumnNames.includes('message_hash')) {
-    try {
-      database.exec('ALTER TABLE notification_log ADD COLUMN message_hash TEXT');
-      console.log('[cache] Added message_hash column to notification_log table');
-    } catch (err) {
-      console.warn('[cache] Failed to add message_hash column (may already exist):', err);
-    }
-  }
-
-  if (!notificationColumnNames.includes('attempt_number')) {
-    try {
-      database.exec('ALTER TABLE notification_log ADD COLUMN attempt_number INTEGER DEFAULT 1');
-      console.log('[cache] Added attempt_number column to notification_log table');
-    } catch (err) {
-      console.warn('[cache] Failed to add attempt_number column (may already exist):', err);
-    }
-  }
-
-  if (!notificationColumnNames.includes('next_retry_at')) {
-    try {
-      database.exec('ALTER TABLE notification_log ADD COLUMN next_retry_at TIMESTAMP NULL');
-      console.log('[cache] Added next_retry_at column to notification_log table');
-    } catch (err) {
-      console.warn('[cache] Failed to add next_retry_at column (may already exist):', err);
-    }
-  }
-
-  // 인덱스 추가 (message_hash가 있는 경우)
-  if (notificationColumnNames.includes('message_hash') || notificationColumnNames.some(c => c.name === 'message_hash')) {
-    try {
-      database.exec('CREATE INDEX IF NOT EXISTS idx_notification_message_hash ON notification_log(message_hash)');
-    } catch (err) {
-      // 인덱스가 이미 존재할 수 있음
-    }
-  }
-
-  // Job Queue 테이블
-  database.exec(`
-    CREATE TABLE IF NOT EXISTS jobs (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      type TEXT NOT NULL,
-      payload TEXT,
-      status TEXT NOT NULL DEFAULT 'pending', -- pending, processing, completed, failed
-      result TEXT,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_jobs_status_type ON jobs(status, type);
   `);
 }
 
@@ -474,10 +433,20 @@ export async function getNewsWithCache(
     }
   }
 
-  // API에서 데이터 가져오기
-  const response = await fetch(
-    `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=${language}&sortBy=publishedAt&apiKey=${NEWS_API_KEY}`
-  );
+  // API에서 데이터 가져오기 (로그 및 시간계산 추가)
+  const newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=${language}&sortBy=publishedAt&apiKey=${NEWS_API_KEY}`;
+  const start = Date.now();
+  console.log(`[cache] Fetching news: ${newsUrl}`);
+  let response;
+  try {
+    response = await fetchWithTimeout(newsUrl, {}, 7000); // 7s timeout
+    const duration = Date.now() - start;
+    console.log(`[cache] News fetch completed in ${duration}ms for query='${query}'`);
+  } catch (err) {
+    const duration = Date.now() - start;
+    console.error(`[cache] News fetch error after ${duration}ms for query='${query}':`, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
 
   if (!response.ok) {
     const errorBody = await response.text();
@@ -573,17 +542,13 @@ export async function getNewsWithCache(
   transaction();
 
   // 트랜잭션 커밋 후 실제 알림 전송 및 로그 기록
-  // 비동기로 실행하되 에러가 발생해도 메인 플로우에 영향을 주지 않도록 처리
   (async () => {
-    if (notifyQueue.length === 0) {
-      return;
-    }
-    
     for (const item of notifyQueue) {
       try {
         const telegram = await import('./telegram');
+        // small delay between sends to avoid burst to Telegram
+        await new Promise(r => setTimeout(r, 200));
         const sent = await telegram.sendMessage(item.message, 'HTML');
-        
         logNotificationAttempt({
           transactionId: null,
           sourceType: 'news',
@@ -598,15 +563,10 @@ export async function getNewsWithCache(
         consoleLogNotification('NewsSend', { url: item.url, sent });
 
         if (sent) {
-          try {
-            database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?').run(item.url);
-          } catch (dbErr) {
-            console.error('Failed to update news_cache notified status:', dbErr);
-          }
+          database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?').run(item.url);
         }
       } catch (err) {
         console.error('News notification failed:', err);
-        const errorMessage = err instanceof Error ? err.message : String(err);
         logNotificationAttempt({
           transactionId: null,
           sourceType: 'news',
@@ -615,15 +575,12 @@ export async function getNewsWithCache(
           attemptNumber: 1,
           success: false,
           responseCode: null,
-          responseBody: errorMessage,
+          responseBody: err instanceof Error ? err.message : String(err),
         });
-        consoleLogNotification('NewsSendError', { url: item.url, error: errorMessage });
+        consoleLogNotification('NewsSendError', { url: item.url, error: err instanceof Error ? err.message : String(err) });
       }
     }
-  })().catch(err => {
-    // 최상위 에러 핸들링 - 알림 실패가 전체 플로우를 막지 않도록
-    console.error('Unexpected error in news notification queue:', err);
-  });
+  })();
 
   return freshData.map(article => ({
     ...article,
@@ -777,12 +734,11 @@ export function logNotificationAttempt(args: {
   responseBody?: string | null;
 }) {
   const database = getDatabase();
-  
-  // 컬럼 존재 여부 확인
-  const columns = database.pragma('table_info(notification_log)') as Array<{ name: string }>;
-  const columnNames = columns.map(c => c.name);
-  const hasMessageHash = columnNames.includes('message_hash');
-  const hasAttemptNumber = columnNames.includes('attempt_number');
+  const stmt = database.prepare(`
+    INSERT INTO notification_log
+    (transaction_id, source_type, channel, payload, message_hash, attempt_number, success, response_code, response_body)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
 
   // Truncate payload/responseBody to reasonable size to avoid DB bloat
   const maxLen = 2000;
@@ -791,62 +747,17 @@ export function logNotificationAttempt(args: {
   const msgHash = payloadStr ? crypto.createHash('sha256').update(payloadStr).digest('hex') : null;
   const attemptNumber = args.attemptNumber && args.attemptNumber > 0 ? args.attemptNumber : 1;
 
-  try {
-    // 컬럼이 모두 있는 경우
-    if (hasMessageHash && hasAttemptNumber) {
-      const stmt = database.prepare(`
-        INSERT INTO notification_log
-        (transaction_id, source_type, channel, payload, message_hash, attempt_number, success, response_code, response_body)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(
-        args.transactionId || null,
-        args.sourceType,
-        args.channel,
-        payloadStr,
-        msgHash,
-        attemptNumber,
-        args.success ? 1 : 0,
-        args.responseCode || null,
-        responseBodyStr
-      );
-    } else {
-      // 컬럼이 없는 경우 fallback (기존 스키마 호환)
-      const stmt = database.prepare(`
-        INSERT INTO notification_log
-        (transaction_id, source_type, channel, payload, success, response_code, response_body)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-      `);
-      stmt.run(
-        args.transactionId || null,
-        args.sourceType,
-        args.channel,
-        payloadStr,
-        args.success ? 1 : 0,
-        args.responseCode || null,
-        responseBodyStr
-      );
-      
-      // 컬럼이 없으면 마이그레이션 시도
-      if (!hasMessageHash || !hasAttemptNumber) {
-        console.warn('[cache] notification_log table missing columns, attempting migration...');
-        try {
-          if (!hasMessageHash) {
-            database.exec('ALTER TABLE notification_log ADD COLUMN message_hash TEXT');
-          }
-          if (!hasAttemptNumber) {
-            database.exec('ALTER TABLE notification_log ADD COLUMN attempt_number INTEGER DEFAULT 1');
-          }
-          console.log('[cache] Migration completed, please restart the server');
-        } catch (migrateErr) {
-          console.error('[cache] Migration failed:', migrateErr);
-        }
-      }
-    }
-  } catch (err) {
-    console.error('[cache] Failed to log notification attempt:', err);
-    // 에러가 발생해도 앱이 중단되지 않도록 처리
-  }
+  stmt.run(
+    args.transactionId || null,
+    args.sourceType,
+    args.channel,
+    payloadStr,
+    msgHash,
+    attemptNumber,
+    args.success ? 1 : 0,
+    args.responseCode || null,
+    responseBodyStr || null
+  );
 }
 
 export function getNotificationLogs(limit: number = 100) {
@@ -936,24 +847,8 @@ export async function resendFailedNotifications(limit = 20) {
       // determine previous attempts for this message_hash
       let prevAttempt = 0;
       if (msgHash) {
-        // 컬럼 존재 여부 확인
-        const columns = database.pragma('table_info(notification_log)') as Array<{ name: string }>;
-        const columnNames = columns.map(c => c.name);
-        const hasMessageHash = columnNames.includes('message_hash');
-        const hasAttemptNumber = columnNames.includes('attempt_number');
-        
-        if (hasMessageHash && hasAttemptNumber) {
-          try {
-            const row = database.prepare('SELECT MAX(attempt_number) as maxAttempt FROM notification_log WHERE message_hash = ?').get(msgHash) as { maxAttempt?: number } | undefined;
-            prevAttempt = row && row.maxAttempt ? Number(row.maxAttempt) : 0;
-          } catch (err) {
-            console.warn('[cache] Failed to get previous attempt number:', err);
-            prevAttempt = 0;
-          }
-        } else {
-          // 컬럼이 없으면 기본값 사용
-          prevAttempt = 0;
-        }
+        const row = database.prepare('SELECT MAX(attempt_number) as maxAttempt FROM notification_log WHERE message_hash = ?').get(msgHash) as { maxAttempt?: number } | undefined;
+        prevAttempt = row && row.maxAttempt ? Number(row.maxAttempt) : 0;
       }
 
       const nextAttempt = prevAttempt + 1;
@@ -1069,48 +964,6 @@ export function deleteTransaction(transactionId?: string): void {
 }
 
 /**
- * 모든 설정을 가져옵니다.
- * @returns 키-값 쌍의 설정 객체
- */
-export function getAllSettings(): Record<string, string> {
-  const database = getDatabase();
-  const rows = database
-    .prepare('SELECT key, value FROM settings')
-    .all() as Array<{ key: string; value: string }>;
-
-  return rows.reduce((acc, row) => {
-    acc[row.key] = row.value;
-    return acc;
-  }, {});
-}
-
-/**
- * 특정 설정 값을 가져옵니다.
- * @param key - 설정 키
- * @returns 설정 값 또는 null
- */
-export function getSetting(key: string): string | null {
-  const database = getDatabase();
-  const result = database
-    .prepare('SELECT value FROM settings WHERE key = ?')
-    .get(key) as { value: string } | undefined;
-  
-  return result ? result.value : null;
-}
-
-/**
- * 설정 값을 업데이트하거나 새로 추가합니다.
- * @param key - 설정 키
- * @param value - 설정 값
- */
-export function updateSetting(key: string, value: string): void {
-  const database = getDatabase();
-  database
-    .prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)')
-    .run(key, value);
-}
-
-/**
  * 데이터베이스 초기화 (모든 테이블 삭제 후 재생성)
  */
 export function resetDatabase(): void {
@@ -1122,68 +975,9 @@ export function resetDatabase(): void {
     DROP TABLE IF EXISTS news_cache;
     DROP TABLE IF EXISTS transaction_analysis_cache;
     DROP TABLE IF EXISTS transactions;
-    DROP TABLE IF EXISTS jobs;
   `);
   
   // 테이블 재생성
   initializeDatabase(database);
-}
-
-/**
- * Job Queue에 새로운 작업을 추가합니다.
- * @param type - 작업 유형 (e.g., 'analyze_transaction')
- * @param payload - 작업에 필요한 데이터
- * @returns 생성된 작업의 ID
- */
-export function addJob(type: string, payload: object): number {
-  const database = getDatabase();
-  const stmt = database.prepare(
-    'INSERT INTO jobs (type, payload) VALUES (?, ?)'
-  );
-  const result = stmt.run(type, JSON.stringify(payload));
-  return result.lastInsertRowid as number;
-}
-
-/**
- * 처리할 작업을 가져옵니다.
- * @param type - 작업 유형
- * @param limit - 가져올 최대 작업 수
- * @returns 작업 배열
- */
-export function getPendingJobs(type: string, limit: number = 10): any[] {
-  const database = getDatabase();
-  return database
-    .prepare(
-      `SELECT * FROM jobs WHERE type = ? AND status = 'pending' ORDER BY created_at ASC LIMIT ?`
-    )
-    .all(type, limit);
-}
-
-/**
- * 작업 상태를 'processing'으로 변경합니다.
- * @param jobId - 작업 ID
- */
-export function startJob(jobId: number): void {
-  const database = getDatabase();
-  database
-    .prepare(
-      `UPDATE jobs SET status = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = ?`
-    )
-    .run(jobId);
-}
-
-/**
- * 작업 상태를 업데이트합니다.
- * @param jobId - 작업 ID
- * @param status - 새로운 상태 ('completed' or 'failed')
- * @param result - 작업 결과 또는 에러 메시지
- */
-export function updateJobStatus(jobId: number, status: 'completed' | 'failed', result: object): void {
-  const database = getDatabase();
-  database
-    .prepare(
-      'UPDATE jobs SET status = ?, result = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?'
-    )
-    .run(status, JSON.stringify(result), jobId);
 }
 

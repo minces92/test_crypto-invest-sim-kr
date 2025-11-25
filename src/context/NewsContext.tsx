@@ -24,10 +24,23 @@ const NewsContext = createContext<NewsContextType | undefined>(undefined);
 const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
 
 export const NewsProvider = ({ children }: { children: ReactNode }) => {
-  const { news, isLoading, isError, mutate } = useNewsData();
+  const [forceRefresh, setForceRefresh] = useState(false);
+  const { news, isLoading, isError, mutate } = useNewsData('crypto', forceRefresh);
 
-  const fetchNews = useCallback(async (forceRefresh: boolean = false) => {
-    if (forceRefresh) {
+  useEffect(() => {
+    // forceRefresh가 true였다가 데이터 로딩이 끝나면 다시 false로 돌려놓습니다.
+    if (forceRefresh && !isLoading) {
+      setForceRefresh(false);
+    }
+  }, [forceRefresh, isLoading]);
+
+  const fetchNews = useCallback(async (refresh: boolean = false) => {
+    if (refresh) {
+      setForceRefresh(true);
+      // useNewsData 훅이 forceRefresh 상태 변화에 따라 자동으로 데이터를 가져옵니다.
+      // 수동으로 mutate를 호출할 필요가 없습니다.
+    } else {
+      // 기본 SWR 재검증
       await mutate();
     }
   }, [mutate]);

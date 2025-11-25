@@ -1,17 +1,27 @@
 'use client';
 
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
-import useSWR from 'swr';
-import { fetcher } from '@/lib/fetcher';
 import { sendMessage } from '@/lib/telegram';
 import { useData } from './DataProviderContext';
-import { calculateSMA, calculateRSI, calculateBollingerBands, calculatePortfolioState } from '@/lib/utils';
-import toast from 'react-hot-toast';
-
-
-import { Asset, Transaction } from '@/lib/types';
+import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
 
 // --- Interface 정의들 ---
+interface Asset {
+  market: string;
+  quantity: number;
+  avg_buy_price: number;
+}
+interface Transaction {
+  id: string;
+  type: 'buy' | 'sell';
+  market: string;
+  price: number;
+  amount: number;
+  timestamp: string;
+  source: string; // 'manual' or strategy ID
+  isAuto?: boolean;
+  strategyType?: string;
+}
 interface DcaConfig {
   strategyType: 'dca';
   market: string;
@@ -60,8 +70,8 @@ interface MomentumConfig {
   threshold: number; // 모멘텀 임계값 (기본값: 5%)
 }
 
-export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig) & {
-  id: string;
+export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig) & { 
+  id: string; 
   isActive: boolean;
   name?: string;
   description?: string;
@@ -80,27 +90,16 @@ interface PortfolioContextType {
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
-// INITIAL_CASH is now imported from '@/lib/constants'
+const INITIAL_CASH = 1000000; // 기본 원금: 1,000,000 KRW
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
-  const { data: settingsData, error: settingsError } = useSWR('/api/settings', fetcher);
-  const initialCashValue = settingsData?.initial_cash ? Number(settingsData.initial_cash) : Number(process.env.NEXT_PUBLIC_DEFAULT_INITIAL_CASH || '1000000');
-
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
   const { tickers } = useData();
 
   const strategyIntervalsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
-  const tickersRef = useRef(tickers);
-  const transactionsRef = useRef(transactions);
-
-  useEffect(() => {
-    tickersRef.current = tickers;
-  }, [tickers]);
-
-  useEffect(() => {
-    transactionsRef.current = transactions;
-  }, [transactions]);
+  // prevent overlapping executions per strategy
+  const strategyRunningRef = useRef<{ [key: string]: boolean }>({});
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -141,17 +140,54 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     fetchTransactions();
     fetchStrategies();
 
-    // executeStrategy는 내부에서 최신 거래/시세 상태를 캡처해야 하므로 의도적으로 의존성에서 제외합니다.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const { assets, cash } = useMemo(() => calculatePortfolioState(transactions, initialCashValue), [transactions, initialCashValue]);
+  const getPortfolioState = (currentTransactions: Transaction[]) => {
+    let calculatedCash = INITIAL_CASH;
+    const calculatedAssets: { [market: string]: Asset } = {};
+
+    // Process transactions in reverse order (oldest first)
+    for (let i = currentTransactions.length - 1; i >= 0; i--) {
+      const tx = currentTransactions[i];
+      if (tx.type === 'buy') {
+        calculatedCash -= tx.price * tx.amount;
+        if (calculatedAssets[tx.market]) {
+          const existingAsset = calculatedAssets[tx.market];
+          const totalQuantity = existingAsset.quantity + tx.amount;
+          const totalCost = (existingAsset.avg_buy_price * existingAsset.quantity) + (tx.price * tx.amount);
+          calculatedAssets[tx.market] = {
+            ...existingAsset,
+            quantity: totalQuantity,
+            avg_buy_price: totalCost / totalQuantity,
+          };
+        } else {
+          calculatedAssets[tx.market] = {
+            market: tx.market,
+            quantity: tx.amount,
+            avg_buy_price: tx.price,
+          };
+        }
+      } else { // sell
+        calculatedCash += tx.price * tx.amount;
+        if (calculatedAssets[tx.market]) {
+          calculatedAssets[tx.market].quantity -= tx.amount;
+        }
+      }
+    }
+
+    return {
+      assets: Object.values(calculatedAssets).filter(a => a.quantity > 0.00001),
+      cash: calculatedCash,
+    };
+  };
+
+  const { assets, cash } = useMemo(() => getPortfolioState(transactions), [transactions]);
 
   const addTransaction = async (
-    type: 'buy' | 'sell',
-    market: string,
-    price: number,
-    amount: number,
+    type: 'buy' | 'sell', 
+    market: string, 
+    price: number, 
+    amount: number, 
     source: string,
     strategyType: string,
     isAuto: boolean
@@ -176,7 +212,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     const typeText = type === 'buy' ? '📈 매수' : '📉 매도';
     const marketName = market.replace('KRW-', '');
     const totalCost = (price * amount).toLocaleString('ko-KR', { maximumFractionDigits: 0 });
-
+    
     const message = `
 <b>🔔 신규 거래 알림</b>
 -------------------------
@@ -211,36 +247,33 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
   const buyAsset = (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): boolean => {
     const cost = price * amount;
-    const { cash: currentCash } = calculatePortfolioState(transactions, initialCashValue);
+    const { cash: currentCash } = getPortfolioState(transactions);
 
     // 최소 거래 금액 (5000원) 체크
     if (cost < 5000) {
       console.log(`[${market}] 매수 금액이 최소 거래 금액(5,000원)보다 작아 취소되었습니다.`);
-      toast.error('최소 거래 금액은 5,000원입니다.');
       return false;
     }
 
     if (currentCash < cost) {
       console.error(`[${market}] 현금이 부족하여 매수할 수 없습니다. (필요: ${cost.toLocaleString()}원, 보유: ${currentCash.toLocaleString()}원)`);
-      toast.error(`현금이 부족합니다. (필요: ${cost.toLocaleString()}원)`);
       return false;
     }
-
+    
     addTransaction('buy', market, price, amount, source, strategyType, isAuto);
     return true;
   };
 
   const sellAsset = (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): boolean => {
-    const { assets: currentAssets } = calculatePortfolioState(transactions, initialCashValue);
+    const { assets: currentAssets } = getPortfolioState(transactions);
     const existingAsset = currentAssets.find(a => a.market === market);
 
     // 매도 가능 수량 체크 (0.00001와 같은 작은 오차 허용)
     if (!existingAsset || existingAsset.quantity < amount - 0.00001) {
       console.error(`[${market}] 매도 가능 수량이 부족하여 매도할 수 없습니다. (요청: ${amount}, 보유: ${existingAsset?.quantity || 0})`);
-      toast.error('매도 가능 수량이 부족합니다.');
       return false;
     }
-
+    
     // 실제 매도 수량은 보유 수량으로 제한
     const sellAmount = Math.min(amount, existingAsset.quantity);
 
@@ -250,19 +283,16 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
   // --- Strategy Execution ---
   const executeStrategy = async (strategy: Strategy) => {
-    if (!strategy.isActive) return;
+    if (!strategy.isActive || tickers.length === 0) return;
 
-    const currentTickers = tickersRef.current;
-    if (currentTickers.length === 0) return;
-
-    const ticker = currentTickers.find(t => t.market === strategy.market);
+    const ticker = tickers.find(t => t.market === strategy.market);
     if (!ticker) return;
 
     if (strategy.strategyType === 'dca') {
       try {
         const currentPrice = ticker.trade_price;
         const change24h = ticker.signed_change_rate * 100 || 0;
-
+        
         // AI 검증 (옵션, 환경변수로 활성화)
         const useAI = process.env.NEXT_PUBLIC_USE_AI_VERIFICATION === 'true';
         if (useAI) {
@@ -276,23 +306,23 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
                 change24h,
               }),
             });
-
+            
             if (aiResponse.ok) {
               const aiData = await aiResponse.json();
               const analysis = aiData.analysis;
-
+              
               if (analysis.recommendation === '매도' && analysis.confidence > 0.7) {
                 console.log(`[${strategy.market}] AI가 DCA 매수를 차단했습니다. 이유: ${analysis.reasoning}`);
                 return;
               }
-
+              
               let amountToBuy = strategy.amount / currentPrice;
               if (analysis.recommendation === '매수' && analysis.recommended_amount_percent) {
                 const adjustedAmount = strategy.amount * (analysis.recommended_amount_percent / 100);
                 amountToBuy = adjustedAmount / currentPrice;
                 console.log(`[${strategy.market}] AI 추천에 따라 매수 금액 조정: ${analysis.recommended_amount_percent}%`);
               }
-
+              
               buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id, strategy.strategyType, true);
             } else {
               const amountToBuy = strategy.amount / currentPrice;
@@ -315,11 +345,11 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         if (candles.length < strategy.longPeriod + 2) return;
 
         const reversedCandles = [...candles].reverse();
-        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactionsRef.current);
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
 
         const shortMA = calculateSMA(reversedCandles, strategy.shortPeriod);
         const longMA = calculateSMA(reversedCandles, strategy.longPeriod);
-
+        
         if (shortMA.length < 2 || longMA.length < 2) return;
 
         const lastShort = shortMA[shortMA.length - 1];
@@ -330,7 +360,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
         const useAI = process.env.NEXT_PUBLIC_USE_AI_VERIFICATION === 'true';
         let aiAnalysis: any = null;
-
+        
         if (useAI) {
           try {
             const aiResponse = await fetch('/api/ai/analyze', {
@@ -343,12 +373,12 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
                 ma: {
                   short: lastShort,
                   long: lastLong,
-                  cross: lastShort > lastLong && prevShort <= prevLong ? 'golden' :
-                    lastShort < lastLong && prevShort >= prevLong ? 'dead' : 'none',
+                  cross: lastShort > lastLong && prevShort <= prevLong ? 'golden' : 
+                         lastShort < lastLong && prevShort >= prevLong ? 'dead' : 'none',
                 },
               }),
             });
-
+            
             if (aiResponse.ok) {
               const aiData = await aiResponse.json();
               aiAnalysis = aiData.analysis;
@@ -363,22 +393,22 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
             console.log(`[${strategy.market}] AI가 골든크로스 매수를 차단했습니다. 이유: ${aiAnalysis.reasoning}`);
             return;
           }
-
+          
           const krwAmount = currentCash * 0.5;
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / currentPrice;
             buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id, strategy.strategyType, true);
           }
-        }
+        } 
         else if (lastShort < lastLong && prevShort >= prevLong) {
           if (aiAnalysis && aiAnalysis.recommendation === '매수' && aiAnalysis.confidence > 0.7) {
             console.log(`[${strategy.market}] AI가 데드크로스 매도를 차단했습니다. 이유: ${aiAnalysis.reasoning}`);
             return;
           }
-
+          
           const assetToSell = currentAssets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
-            sellAsset(strategy.market, currentPrice, assetToSell.quantity, strategy.id, strategy.strategyType, true);
+                sellAsset(strategy.market, currentPrice, assetToSell.quantity, strategy.id, strategy.strategyType, true);
           }
         }
       } catch (error) { console.error('MA 전략 실행 실패:', error); }
@@ -392,11 +422,11 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         const rsi = calculateRSI(reversedCandles, strategy.period);
         const lastRsi = rsi[rsi.length - 1];
         const currentPrice = ticker.trade_price;
-        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactionsRef.current);
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
 
         const useAI = process.env.NEXT_PUBLIC_USE_AI_VERIFICATION === 'true';
         let aiAnalysis: any = null;
-
+        
         if (useAI) {
           try {
             const aiResponse = await fetch('/api/ai/analyze', {
@@ -409,7 +439,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
                 rsi: lastRsi,
               }),
             });
-
+            
             if (aiResponse.ok) {
               const aiData = await aiResponse.json();
               aiAnalysis = aiData.analysis;
@@ -424,7 +454,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
             console.log(`[${strategy.market}] AI가 RSI 과매도 매수를 차단했습니다. 이유: ${aiAnalysis.reasoning}`);
             return;
           }
-
+          
           const krwAmount = currentCash * 0.5;
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / currentPrice;
@@ -435,10 +465,10 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
             console.log(`[${strategy.market}] AI가 RSI 과매수 매도를 차단했습니다. 이유: ${aiAnalysis.reasoning}`);
             return;
           }
-
+          
           const assetToSell = currentAssets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
-            sellAsset(strategy.market, currentPrice, assetToSell.quantity, strategy.id, strategy.strategyType, true);
+                sellAsset(strategy.market, currentPrice, assetToSell.quantity, strategy.id, strategy.strategyType, true);
           }
         }
       } catch (error) { console.error('RSI 전략 실행 실패:', error); }
@@ -450,19 +480,19 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
         const reversedCandles = [...candles].reverse();
         const bb = calculateBollingerBands(reversedCandles, strategy.period, strategy.multiplier);
-
+        
         const currentPrice = ticker.trade_price;
         const lastUpper = bb.upper[bb.upper.length - 1];
         const lastLower = bb.lower[bb.lower.length - 1];
-        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactionsRef.current);
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
 
         const useAI = process.env.NEXT_PUBLIC_USE_AI_VERIFICATION === 'true';
         let aiAnalysis: any = null;
-
+        
         if (useAI) {
           try {
-            const bollingerPosition = currentPrice < lastLower ? 'below' :
-              currentPrice > lastUpper ? 'above' : 'middle';
+            const bollingerPosition = currentPrice < lastLower ? 'below' : 
+                                     currentPrice > lastUpper ? 'above' : 'middle';
             const aiResponse = await fetch('/api/ai/analyze', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -478,7 +508,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
                 },
               }),
             });
-
+            
             if (aiResponse.ok) {
               const aiData = await aiResponse.json();
               aiAnalysis = aiData.analysis;
@@ -493,7 +523,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
             console.log(`[${strategy.market}] AI가 볼린저밴드 하단 매수를 차단했습니다. 이유: ${aiAnalysis.reasoning}`);
             return;
           }
-
+          
           const krwAmount = currentCash * 0.5;
           if (krwAmount > 5000) {
             const amountToBuy = krwAmount / currentPrice;
@@ -504,7 +534,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
             console.log(`[${strategy.market}] AI가 볼린저밴드 상단 매도를 차단했습니다. 이유: ${aiAnalysis.reasoning}`);
             return;
           }
-
+          
           const assetToSell = currentAssets.find(a => a.market === strategy.market);
           if (assetToSell && assetToSell.quantity > 0) {
             sellAsset(strategy.market, currentPrice, assetToSell.quantity * 0.5, strategy.id, strategy.strategyType, true);
@@ -512,6 +542,11 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         }
       } catch (error) { console.error('BBand 전략 실행 실패:', error); }
     } else if (strategy.strategyType === 'news') {
+      // Prevent re-entrancy: if this strategy is already running, skip this tick
+      if (strategyRunningRef.current[strategy.id]) {
+        return;
+      }
+      strategyRunningRef.current[strategy.id] = true;
       try {
         // Support global news scanner: market === 'ALL' or '*'
         const isGlobal = strategy.market === 'ALL' || strategy.market === '*';
@@ -529,8 +564,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
             if (relevantNews.length === 0) return;
 
-            const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactionsRef.current);
-            const tickerForMarket = currentTickers.find(t => t.market === marketCode);
+            const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactions);
+            const tickerForMarket = tickers.find(t => t.market === marketCode);
             const currentPriceForMarket = tickerForMarket?.trade_price;
 
             if (!currentPriceForMarket) {
@@ -566,19 +601,25 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         };
 
         if (isGlobal) {
-          const krwTickers = currentTickers.filter(t => t.market.startsWith('KRW-'));
-          
-          // Process in chunks to avoid overwhelming the API
-          const chunkSize = 5; 
-          for (let i = 0; i < krwTickers.length; i += chunkSize) {
-              const chunk = krwTickers.slice(i, i + chunkSize);
-              const promises = chunk.map(t => processMarket(t.market));
-              await Promise.all(promises);
+          // Process tickers in bounded concurrent batches to avoid long sequential blocking
+          const concurrency = 5; // number of parallel requests
+          const krwTickers = tickers.filter(t => t.market && t.market.startsWith('KRW-'));
+          for (let i = 0; i < krwTickers.length; i += concurrency) {
+            const chunk = krwTickers.slice(i, i + concurrency);
+            await Promise.all(chunk.map(t => processMarket(t.market)));
+            // small delay between batches to be polite to the news API
+            // eslint-disable-next-line no-await-in-loop
+            await new Promise(r => setTimeout(r, 200));
           }
         } else {
+          // specific market
+          // eslint-disable-next-line no-await-in-loop
           await processMarket(strategy.market);
         }
       } catch (error) { console.error('News 전략 실행 실패:', error); }
+      finally {
+        strategyRunningRef.current[strategy.id] = false;
+      }
     } else if (strategy.strategyType === 'volatility') {
       try {
         const response = await fetch(`/api/candles?market=${strategy.market}&count=2`);
@@ -593,7 +634,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         if (currentPrice > targetPrice) {
           const useAI = process.env.NEXT_PUBLIC_USE_AI_VERIFICATION === 'true';
           let aiAnalysis: any = null;
-
+          
           if (useAI) {
             try {
               const aiResponse = await fetch('/api/ai/analyze', {
@@ -610,7 +651,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
                   },
                 }),
               });
-
+              
               if (aiResponse.ok) {
                 const aiData = await aiResponse.json();
                 aiAnalysis = aiData.analysis;
@@ -621,7 +662,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           }
 
           if (!aiAnalysis || (aiAnalysis.recommendation === '매수' && aiAnalysis.confidence > 0.6)) {
-            const { cash: currentCash } = getPortfolioState(transactionsRef.current);
+            const { cash: currentCash } = getPortfolioState(transactions);
             const krwAmount = currentCash * 0.3;
             if (krwAmount > 5000) {
               const amountToBuy = krwAmount / currentPrice;
@@ -642,9 +683,9 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         const reversedCandles = [...candles].reverse();
         const currentPrice = ticker.trade_price;
         const pastPrice = reversedCandles[reversedCandles.length - strategy.period - 1].trade_price;
-
+        
         const priceMomentum = ((currentPrice - pastPrice) / pastPrice) * 100;
-
+        
         const recentVolumes = reversedCandles.slice(-strategy.period).map(c => c.candle_acc_trade_volume || 0);
         const avgVolume = recentVolumes.reduce((a, b) => a + b, 0) / recentVolumes.length;
         const currentVolume = recentVolumes[recentVolumes.length - 1] || 0;
@@ -653,12 +694,12 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         if (priceMomentum > strategy.threshold && volumeMomentum > 20) {
           const useAI = process.env.NEXT_PUBLIC_USE_AI_VERIFICATION === 'true';
           let aiAnalysis: any = null;
-
+          
           if (useAI) {
             try {
               const rsi = calculateRSI(reversedCandles, 14);
               const lastRsi = rsi.length > 0 ? rsi[rsi.length - 1] : 50;
-
+              
               const aiResponse = await fetch('/api/ai/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -674,7 +715,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
                   },
                 }),
               });
-
+              
               if (aiResponse.ok) {
                 const aiData = await aiResponse.json();
                 aiAnalysis = aiData.analysis;
@@ -685,7 +726,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           }
 
           if (!aiAnalysis || (aiAnalysis.recommendation === '매수' && aiAnalysis.confidence > 0.65)) {
-            const { cash: currentCash } = getPortfolioState(transactionsRef.current);
+            const { cash: currentCash } = getPortfolioState(transactions);
             const krwAmount = currentCash * 0.4;
             if (krwAmount > 5000) {
               const amountToBuy = krwAmount / currentPrice;
@@ -727,7 +768,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       } else if (savedStrategy.strategyType === 'volatility' || savedStrategy.strategyType === 'momentum') {
         intervalMilliseconds = 60000; // Check every 1 minute for volatility and momentum
       }
-
+  
       executeStrategy(savedStrategy);
       const intervalId = setInterval(() => executeStrategy(savedStrategy), intervalMilliseconds);
       strategyIntervalsRef.current[savedStrategy.id] = intervalId;

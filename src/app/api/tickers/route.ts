@@ -20,19 +20,35 @@ export async function GET(request: Request) {
     // Upbit API는 한 번에 최대 100개의 마켓을 조회할 수 있지만, URL 길이 제한 등을 고려하여 10개씩チャン크로 나눕니다.
     const marketChunks = chunkArray(finalMarkets, 10);
 
-    const fetchPromises = marketChunks.map(chunk => 
-      fetch(`https://api.upbit.com/v1/ticker?markets=${chunk.join(',')}`)
-        .then(async (response) => {
-          if (!response.ok) {
-            // Upbit 에러 응답을 포함하여 더 자세한 에러를 던집니다.
-            const errorBody = await response.json().catch(() => ({ message: 'Unknown Upbit error' }));
-            throw new Error(`Upbit API request failed with status ${response.status}: ${errorBody.error?.message || 'No details'}`);
+    // Helper: fetch with timeout and simple retries
+    const fetchWithTimeoutAndRetries = async (url: string, timeoutMs = 5000, maxAttempts = 3) => {
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeoutMs);
+        try {
+          const res = await fetch(url, { signal: controller.signal });
+          if (!res.ok) {
+            const errorBody = await res.text().catch(() => '');
+            throw new Error(`Upbit API status ${res.status}: ${errorBody}`);
           }
-          return response.json();
-        })
-    );
+          const json = await res.json();
+          return json;
+        } catch (err) {
+          if (attempt < maxAttempts) {
+            const delay = Math.pow(2, attempt) * 200;
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          throw err;
+        } finally {
+          clearTimeout(id);
+        }
+      }
+    };
 
-    const results = await Promise.all(fetchPromises);
+    const results = await Promise.all(
+      marketChunks.map(chunk => fetchWithTimeoutAndRetries(`https://api.upbit.com/v1/ticker?markets=${chunk.join(',')}`, 5000, 3))
+    );
     const combinedData = results.flat(); // 모든 チャン크 결과를 하나의 배열로 합칩니다.
 
     return NextResponse.json(combinedData);

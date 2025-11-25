@@ -732,12 +732,13 @@ export function logNotificationAttempt(args: {
   attemptNumber?: number;
   responseCode?: number | null;
   responseBody?: string | null;
+  nextRetryAt?: string | null;
 }) {
   const database = getDatabase();
   const stmt = database.prepare(`
     INSERT INTO notification_log
-    (transaction_id, source_type, channel, payload, message_hash, attempt_number, success, response_code, response_body)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    (transaction_id, source_type, channel, payload, message_hash, attempt_number, success, response_code, response_body, next_retry_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
 
   // Truncate payload/responseBody to reasonable size to avoid DB bloat
@@ -747,6 +748,7 @@ export function logNotificationAttempt(args: {
   const msgHash = payloadStr ? crypto.createHash('sha256').update(payloadStr).digest('hex') : null;
   const attemptNumber = args.attemptNumber && args.attemptNumber > 0 ? args.attemptNumber : 1;
 
+  const nextRetryAt = (args as any).nextRetryAt || null;
   stmt.run(
     args.transactionId || null,
     args.sourceType,
@@ -756,7 +758,8 @@ export function logNotificationAttempt(args: {
     attemptNumber,
     args.success ? 1 : 0,
     args.responseCode || null,
-    responseBodyStr || null
+    responseBodyStr || null,
+    nextRetryAt
   );
 }
 
@@ -812,7 +815,7 @@ export function consoleLogNotification(label: string, details: Record<string, an
 export async function resendFailedNotifications(limit = 20) {
   const database = getDatabase();
   const rows = database
-    .prepare('SELECT * FROM notification_log WHERE success = 0 ORDER BY created_at ASC LIMIT ?')
+    .prepare("SELECT * FROM notification_log WHERE success = 0 AND (next_retry_at IS NULL OR next_retry_at <= datetime('now')) ORDER BY created_at ASC LIMIT ?")
     .all(limit) as Array<any>;
 
   if (!rows || rows.length === 0) return 0;
@@ -870,6 +873,15 @@ export async function resendFailedNotifications(limit = 20) {
 
       const sent = await telegram.sendMessage(r.payload, 'HTML');
 
+      if (sent && r.transaction_id) {
+        database.prepare('UPDATE transactions SET notification_sent = 1 WHERE id = ?').run(r.transaction_id);
+      }
+
+      // compute backoff: base 30s * 2^(attempt-1)
+      const baseDelaySec = 30;
+      const backoffSeconds = baseDelaySec * Math.pow(2, nextAttempt - 1);
+      const nextRetryAt = new Date(Date.now() + backoffSeconds * 1000).toISOString();
+
       logNotificationAttempt({
         transactionId: r.transaction_id,
         sourceType: r.source_type,
@@ -879,11 +891,8 @@ export async function resendFailedNotifications(limit = 20) {
         success: !!sent,
         responseCode: sent ? 200 : 0,
         responseBody: sent ? 'ok' : 'failed',
+        nextRetryAt: sent ? null : nextRetryAt,
       });
-
-      if (sent && r.transaction_id) {
-        database.prepare('UPDATE transactions SET notification_sent = 1 WHERE id = ?').run(r.transaction_id);
-      }
 
       successCount += sent ? 1 : 0;
     } catch (err) {

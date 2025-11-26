@@ -1068,3 +1068,93 @@ export function getSetting(key: string, defaultValue?: any): any {
   return defaultValue;
 }
 
+/**
+ * Issue #3: 알림 API 타임아웃 모니터링 메트릭
+ * 응답 시간 및 타임아웃 빈도 추적
+ */
+interface ApiResponseMetric {
+  endpoint: string;
+  responseTimeMs: number;
+  timestamp: number;
+  timedOut: boolean;
+  error?: string;
+}
+
+const apiMetrics: ApiResponseMetric[] = [];
+
+export function recordApiMetric(
+  endpoint: string,
+  responseTimeMs: number,
+  timedOut: boolean = false,
+  error?: string
+) {
+  const metric: ApiResponseMetric = {
+    endpoint,
+    responseTimeMs,
+    timestamp: Date.now(),
+    timedOut,
+    error,
+  };
+  
+  apiMetrics.push(metric);
+  
+  // 최근 1000개만 유지
+  if (apiMetrics.length > 1000) {
+    apiMetrics.shift();
+  }
+  
+  // 타임아웃 또는 응답 시간 1500ms 초과 시 경고 로그
+  const RESPONSE_TIME_THRESHOLD = 1500;
+  if (timedOut) {
+    console.warn(`[API Timeout] ${endpoint}: ${responseTimeMs}ms (TIMEOUT)`, {
+      endpoint,
+      responseTimeMs,
+      timestamp: new Date(metric.timestamp).toISOString(),
+    });
+  } else if (responseTimeMs > RESPONSE_TIME_THRESHOLD) {
+    console.warn(`[API Slow Response] ${endpoint}: ${responseTimeMs}ms (threshold: ${RESPONSE_TIME_THRESHOLD}ms)`, {
+      endpoint,
+      responseTimeMs,
+      timestamp: new Date(metric.timestamp).toISOString(),
+    });
+  }
+}
+
+export function getApiMetrics(endpoint?: string, lastNSeconds: number = 300): {
+  metrics: ApiResponseMetric[];
+  stats: {
+    totalRequests: number;
+    timeoutCount: number;
+    slowResponseCount: number;
+    avgResponseTimeMs: number;
+    maxResponseTimeMs: number;
+  };
+} {
+  const cutoffTime = Date.now() - (lastNSeconds * 1000);
+  
+  // 필터링
+  let filtered = apiMetrics.filter(m => m.timestamp > cutoffTime);
+  if (endpoint) {
+    filtered = filtered.filter(m => m.endpoint === endpoint);
+  }
+  
+  // 통계 계산
+  const RESPONSE_TIME_THRESHOLD = 1500;
+  const stats = {
+    totalRequests: filtered.length,
+    timeoutCount: filtered.filter(m => m.timedOut).length,
+    slowResponseCount: filtered.filter(m => m.responseTimeMs > RESPONSE_TIME_THRESHOLD).length,
+    avgResponseTimeMs: filtered.length > 0
+      ? Math.round(filtered.reduce((sum, m) => sum + m.responseTimeMs, 0) / filtered.length)
+      : 0,
+    maxResponseTimeMs: filtered.length > 0
+      ? Math.max(...filtered.map(m => m.responseTimeMs))
+      : 0,
+  };
+  
+  return {
+    metrics: filtered,
+    stats,
+  };
+}
+

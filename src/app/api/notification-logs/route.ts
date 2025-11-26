@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { getNotificationLogs } from '@/lib/cache';
+import { getNotificationLogs, recordApiMetric } from '@/lib/cache';
 
 // Helper to wrap sync DB call with timeout to prevent blocking
 function withTimeout<T>(fn: () => T, timeoutMs: number): Promise<{ result: T | null; timedOut: boolean }> {
@@ -24,6 +24,8 @@ function withTimeout<T>(fn: () => T, timeoutMs: number): Promise<{ result: T | n
 }
 
 export async function GET(request: Request) {
+  const startTime = performance.now();
+  
   try {
     const url = new URL(request.url);
     const limitParam = url.searchParams.get('limit');
@@ -32,6 +34,11 @@ export async function GET(request: Request) {
     // Attempt to fetch logs with a 2-second timeout to prevent UI freeze
     const { result: logs, timedOut } = await withTimeout(() => getNotificationLogs(limit), 2000);
     
+    const responseTimeMs = Math.round(performance.now() - startTime);
+    
+    // Issue #3: 타임아웃 모니터링 (1.5초 기준)
+    recordApiMetric('GET /api/notification-logs', responseTimeMs, timedOut);
+    
     if (timedOut) {
       console.warn('Notification logs query timed out after 2s; returning empty logs');
       return NextResponse.json({ logs: [], warning: 'Database query timed out; no logs available' });
@@ -39,12 +46,17 @@ export async function GET(request: Request) {
     
     return NextResponse.json({ logs: logs || [] });
   } catch (error) {
+    const responseTimeMs = Math.round(performance.now() - startTime);
+    recordApiMetric('GET /api/notification-logs', responseTimeMs, false, String(error));
+    
     console.error('Error reading notification logs:', error);
     return NextResponse.json({ logs: [], error: 'Failed to read notification logs' }, { status: 200 });
   }
 }
 
 export async function POST(request: Request) {
+  const startTime = performance.now();
+  
   try {
     const body = await request.json();
     // validate minimal fields
@@ -82,12 +94,21 @@ export async function POST(request: Request) {
         }
       }
     } catch (err) {
+      const responseTimeMs = Math.round(performance.now() - startTime);
+      recordApiMetric('POST /api/notification-logs', responseTimeMs, false, String(err));
+      
       console.error('Failed to write notification log:', err);
       return NextResponse.json({ error: 'Failed to write notification log' }, { status: 500 });
     }
 
+    const responseTimeMs = Math.round(performance.now() - startTime);
+    recordApiMetric('POST /api/notification-logs', responseTimeMs);
+
     return NextResponse.json({ ok: true }, { status: 201 });
   } catch (error) {
+    const responseTimeMs = Math.round(performance.now() - startTime);
+    recordApiMetric('POST /api/notification-logs', responseTimeMs, false, String(error));
+    
     console.error('Invalid notification log body:', error);
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 });
   }

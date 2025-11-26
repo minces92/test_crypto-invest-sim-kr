@@ -780,27 +780,32 @@ export function logNotificationAttempt(args: {
 }
 
 export function getNotificationLogs(limit: number = 100) {
-  const database = getDatabase();
-  const rows = database
-    .prepare('SELECT * FROM notification_log ORDER BY created_at DESC LIMIT ?')
-    .all(limit) as Array<any>;
+  try {
+    const database = getDatabase();
+    const rows = database
+      .prepare('SELECT * FROM notification_log ORDER BY created_at DESC LIMIT ?')
+      .all(limit) as Array<any>;
 
-  return rows.map(r => ({
-    id: r.id,
-    transactionId: r.transaction_id,
-    sourceType: r.source_type,
-    channel: r.channel,
-    payload: r.payload,
-    success: r.success === 1,
-    attemptNumber: r.attempt_number,
-    messageHash: r.message_hash,
-    responseCode: r.response_code,
-    responseBody: r.response_body,
-    createdAt: r.created_at,
-    nextRetryAt: r.next_retry_at,
-    // createdAt in KST for convenience
-    createdAtKst: new Date(r.created_at + 'Z').toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
-  }));
+    return rows.map(r => ({
+      id: r.id,
+      transactionId: r.transaction_id,
+      sourceType: r.source_type,
+      channel: r.channel,
+      payload: r.payload,
+      success: r.success === 1,
+      attemptNumber: r.attempt_number,
+      messageHash: r.message_hash,
+      responseCode: r.response_code,
+      responseBody: r.response_body,
+      createdAt: r.created_at,
+      nextRetryAt: r.next_retry_at,
+      // createdAt in KST for convenience
+      createdAtKst: new Date(r.created_at + 'Z').toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }),
+    }));
+  } catch (err) {
+    console.warn('[cache] getNotificationLogs DB query failed:', err);
+    return [];
+  }
 }
 
 /**

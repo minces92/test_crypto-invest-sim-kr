@@ -1,6 +1,7 @@
 'use client';
 import React, { useState } from 'react';
 import NotificationLogs from './NotificationLogs';
+import ErrorBoundary from './ErrorBoundary';
 
 export default function Header() {
   const [showLogs, setShowLogs] = useState(false);
@@ -26,7 +27,9 @@ export default function Header() {
 
       {showLogs && (
         <div className="container-lg mt-3">
-          <NotificationLogs onClose={() => setShowLogs(false)} />
+          <ErrorBoundary>
+            <NotificationLogs onClose={() => setShowLogs(false)} />
+          </ErrorBoundary>
         </div>
       )}
     </header>

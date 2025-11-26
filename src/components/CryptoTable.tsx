@@ -52,7 +52,16 @@ export default function CryptoTable({ handleOpenModal }: CryptoTableProps) {
           </thead>
           <tbody>
             {loading && <tr><td colSpan={4} className="text-center">로딩 중...</td></tr>}
-            {error && <tr><td colSpan={4} className="text-center color-fg-danger">데이터를 불러오는 데 실패했습니다: {error}</td></tr>}
+            {error && (
+              <tr>
+                <td colSpan={4} className="text-center color-fg-danger">
+                  <div style={{ padding: '16px 0' }}>
+                    <p>⚠️ 데이터를 불러오는 데 실패했습니다: {error}</p>
+                    <button className="btn btn-sm" onClick={() => window.location.reload()}>다시 시도</button>
+                  </div>
+                </td>
+              </tr>
+            )}
             {!loading && !error && tickers.map((ticker) => (
               <tr key={ticker.market}>
                 <td>{getMarketName(ticker.market)} ({ticker.market.replace('KRW-', '')})</td>

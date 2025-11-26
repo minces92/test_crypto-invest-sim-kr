@@ -10,6 +10,7 @@ import AutoTrader from "@/components/AutoTrader";
 import TradeModal from '@/components/TradeModal';
 import MultiChartComponent from '@/components/MultiChartComponent';
 import OllamaStatus from '@/components/OllamaStatus';
+import ErrorBoundary from '@/components/ErrorBoundary';
 
 interface Ticker {
   market: string;
@@ -19,7 +20,7 @@ interface Ticker {
 export default function Home() {
   const [showModal, setShowModal] = useState(false);
   const [selectedTicker, setSelectedTicker] = useState<Ticker | null>(null);
-  const [orderType, setOrderType] = useState('buy');
+  const [orderType, setOrderType] = useState<'buy' | 'sell'>('buy');
 
   const handleOpenModal = (ticker: Ticker, type: 'buy' | 'sell') => {
     setSelectedTicker(ticker);
@@ -44,19 +45,33 @@ export default function Home() {
                 <h2 className="Box-title">코인 비교 차트</h2>
               </div>
               <div className="Box-body">
-                <MultiChartComponent markets={['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA']} />
+                <ErrorBoundary>
+                  <MultiChartComponent markets={['KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-SOL', 'KRW-ADA']} />
+                </ErrorBoundary>
               </div>
             </div>
-            <CryptoTable handleOpenModal={handleOpenModal} />
-            <TransactionHistory />
+            <ErrorBoundary>
+              <CryptoTable handleOpenModal={handleOpenModal} />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <TransactionHistory />
+            </ErrorBoundary>
           </div>
 
           {/* Sidebar Column */}
           <div className="col-12 col-lg-5 mb-4">
-            <Portfolio handleOpenModal={handleOpenModal} />
-            <AutoTrader />
-            <NewsFeed />
-            <OllamaStatus />
+            <ErrorBoundary>
+              <Portfolio handleOpenModal={handleOpenModal} />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <AutoTrader />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <NewsFeed />
+            </ErrorBoundary>
+            <ErrorBoundary>
+              <OllamaStatus />
+            </ErrorBoundary>
           </div>
         </div>
       </div>

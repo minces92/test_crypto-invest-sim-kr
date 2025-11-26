@@ -107,9 +107,10 @@ export default function ChartComponent({ market }: ChartComponentProps) {
       setLoading(false);
       setError(null);
 
-      if (!chartRef.current || !candleSeriesRef.current) return;
+      try {
+        if (!chartRef.current || !candleSeriesRef.current) return;
 
-      const validData = candles
+        const validData = candles
         .filter((d: any) => d && d.candle_date_time_utc && d.trade_price != null)
         .sort((a: any, b: any) => new Date(a.candle_date_time_utc).getTime() - new Date(b.candle_date_time_utc).getTime())
         .map((d: any) => ({
@@ -123,7 +124,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
       candleSeriesRef.current.setData(validData);
 
       // Indicators
-      const priceData = validData.map(d => ({ trade_price: d.close }));
+  const priceData = validData.map((d: any) => ({ trade_price: d.close }));
 
       // SMA
       if (indicators.sma) {
@@ -131,10 +132,10 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           smaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: '#ffc658', lineWidth: 2, title: 'SMA(20)' });
         }
         const smaValues = calculateSMA(priceData, 20);
-        const smaData = validData.map((d, i) => ({
+        const smaData = validData.map((d: any, i: number) => ({
           time: d.time,
           value: smaValues[i] || NaN,
-        })).filter(d => !isNaN(d.value));
+        })).filter((d: any) => !isNaN(d.value));
         smaSeriesRef.current.setData(smaData);
       } else if (smaSeriesRef.current) {
         chartRef.current.removeSeries(smaSeriesRef.current);
@@ -147,10 +148,10 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           emaSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: '#82ca9d', lineWidth: 2, title: 'EMA(12)' });
         }
         const emaValues = calculateEMA(priceData, 12);
-        const emaData = validData.map((d, i) => ({
+        const emaData = validData.map((d: any, i: number) => ({
           time: d.time,
           value: emaValues[i] || NaN,
-        })).filter(d => !isNaN(d.value));
+        })).filter((d: any) => !isNaN(d.value));
         emaSeriesRef.current.setData(emaData);
       } else if (emaSeriesRef.current) {
         chartRef.current.removeSeries(emaSeriesRef.current);
@@ -168,8 +169,8 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           bbLowerSeriesRef.current = chartRef.current.addSeries(LineSeries, { color: '#ccc', lineWidth: 1, lineStyle: 2, title: 'BB Lower' });
         }
         const bb = calculateBollingerBands(priceData, 20, 2);
-        const bbUpperData = validData.map((d, i) => ({ time: d.time, value: bb.upper[i] || NaN })).filter(d => !isNaN(d.value));
-        const bbLowerData = validData.map((d, i) => ({ time: d.time, value: bb.lower[i] || NaN })).filter(d => !isNaN(d.value));
+  const bbUpperData = validData.map((d: any, i: number) => ({ time: d.time, value: bb.upper[i] || NaN })).filter((d: any) => !isNaN(d.value));
+  const bbLowerData = validData.map((d: any, i: number) => ({ time: d.time, value: bb.lower[i] || NaN })).filter((d: any) => !isNaN(d.value));
 
         bbUpperSeriesRef.current.setData(bbUpperData);
         bbLowerSeriesRef.current.setData(bbLowerData);
@@ -184,7 +185,7 @@ export default function ChartComponent({ market }: ChartComponentProps) {
         }
       }
 
-      // Markers (Transactions)
+        // Markers (Transactions)
       const markers = transactions
         .filter(tx => tx.market === market)
         .map(tx => ({
@@ -194,12 +195,16 @@ export default function ChartComponent({ market }: ChartComponentProps) {
           shape: tx.type === 'buy' ? 'arrowUp' : 'arrowDown',
           text: tx.type === 'buy' ? '매수' : '매도',
         }));
-      // @ts-ignore
-      if (typeof candleSeriesRef.current.setMarkers === 'function') {
+        // @ts-ignore
+        if (typeof candleSeriesRef.current.setMarkers === 'function') {
         // @ts-ignore
         candleSeriesRef.current.setMarkers(markers);
-      } else {
-        console.error('setMarkers is not a function on candleSeriesRef.current', candleSeriesRef.current);
+        } else {
+          console.error('setMarkers is not a function on candleSeriesRef.current', candleSeriesRef.current);
+        }
+      } catch (err) {
+        console.error('Chart update failed:', err);
+        setError('차트를 업데이트하는 동안 오류가 발생했습니다.');
       }
     }
   }, [candles, isLoading, isError, indicators, transactions, market]);

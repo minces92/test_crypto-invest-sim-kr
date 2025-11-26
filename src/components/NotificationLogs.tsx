@@ -19,18 +19,23 @@ import React, { useEffect, useState } from 'react';
 export default function NotificationLogs({ onClose }: { onClose?: () => void }) {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
   const [newsRefreshInterval, setNewsRefreshInterval] = useState<number>(15);
   const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const fetchLogs = async () => {
     setLoading(true);
+    setError(null);
     try {
       const res = await fetch('/api/notification-logs?limit=50');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setLogs(data.logs || []);
     } catch (err) {
       console.error('Failed to fetch notification logs:', err);
+      setError(err instanceof Error ? err.message : String(err));
+      setLogs([]);
     } finally {
       setLoading(false);
     }
@@ -83,6 +88,12 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
       </div>
       <div style={{ maxHeight: 300, overflow: 'auto' }}>
         {loading && <div className="p-3">로딩 중...</div>}
+        {error && (
+          <div className="p-3 text-center color-fg-danger">
+            <p>알림 이력을 가져오는 데 실패했습니다: {error}</p>
+            <button className="btn btn-sm" onClick={() => fetchLogs()}>다시 시도</button>
+          </div>
+        )}
         {!loading && logs.length === 0 && <div className="p-3">최근 알림 이력이 없습니다.</div>}
         <ul style={{ listStyle: 'none', padding: 0, margin: 0 }}>
           {logs.map(l => (
@@ -116,13 +127,15 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
                         body: JSON.stringify({ id: l.id }),
                       });
                       const data = await res.json();
-                      if (data.ok) {
-                        fetchLogs();
-                      } else {
-                        console.error('Retry failed', data);
-                      }
+                        if (data.ok) {
+                          fetchLogs();
+                        } else {
+                          console.error('Retry failed', data);
+                          setError(data.error || 'Retry failed');
+                        }
                     } catch (err) {
                       console.error('Retry request error', err);
+                      setError(err instanceof Error ? err.message : String(err));
                     }
                   }}
                 >{l.nextRetryAt && new Date(l.nextRetryAt) > new Date() ? '예약됨' : '재전송'}</button>
@@ -131,16 +144,20 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
                   className="btn"
                   style={{ marginLeft: 8 }}
                   onClick={async () => {
-                    try {
+                      try {
                       const res = await fetch('/api/notification-logs/retry', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ id: l.id, force: true }),
                       });
-                      const data = await res.json();
-                      if (data.ok) fetchLogs(); else console.error('Force retry failed', data);
+                        const data = await res.json();
+                        if (data.ok) fetchLogs(); else {
+                          console.error('Force retry failed', data);
+                          setError(data.error || 'Force retry failed');
+                        }
                     } catch (err) {
                       console.error('Force retry request error', err);
+                      setError(err instanceof Error ? err.message : String(err));
                     }
                   }}
                 >강제 재전송</button>

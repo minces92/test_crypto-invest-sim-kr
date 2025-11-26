@@ -3,8 +3,18 @@ import { createAIClient } from '@/lib/ai-client';
 import { getOrSaveTransactionAnalysis } from '@/lib/cache';
 
 export async function POST(request: Request) {
+  let body;
   try {
-    const body = await request.json();
+    body = await request.json();
+  } catch (jsonErr) {
+    console.error('Invalid JSON body in analyze-trade API:', jsonErr);
+    return NextResponse.json(
+      { error: 'Invalid JSON body. Please send a valid JSON payload.' },
+      { status: 400 }
+    );
+  }
+
+  try {
     const { transaction, marketPrice } = body;
 
     if (!transaction || !transaction.market || !transaction.price || !transaction.id) {

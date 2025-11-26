@@ -14,7 +14,7 @@ interface PortfolioProps {
 
 export default function Portfolio({ handleOpenModal }: PortfolioProps) {
   const { cash, assets } = usePortfolio();
-  const { tickers } = useData();
+  const { tickers, loading: tickersLoading, error: tickersError } = useData();
 
   const tickersMap = tickers.reduce((acc, ticker) => {
     acc[ticker.market] = ticker;
@@ -43,6 +43,13 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
           <h6 className="f6 mb-0"><strong>보유 현금</strong></h6>
           <p className="text-normal mb-0">{cash.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</p>
         </div>
+        {tickersLoading && <div className="text-center p-2">시세 로딩 중...</div>}
+        {tickersError && (
+          <div className="text-center p-2 color-fg-danger">
+            <p>시세 데이터를 불러오는 데 실패했습니다.</p>
+            <button className="btn btn-sm" onClick={() => window.location.reload()}>다시 시도</button>
+          </div>
+        )}
         
         <hr className="my-3" />
 

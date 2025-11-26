@@ -43,3 +43,39 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Failed to update setting' }, { status: 500 });
   }
 }
+
+// PATCH: 뉴스 갱신 주기 등 개별 설정 업데이트 (Issue #2)
+export async function PATCH(request: Request) {
+  try {
+    const body = await request.json();
+    const { newsRefreshInterval } = body;
+
+    // 뉴스 갱신 주기 검증 (1-120분)
+    if (newsRefreshInterval !== undefined) {
+      const interval = Number(newsRefreshInterval);
+      if (isNaN(interval) || interval < 1 || interval > 120) {
+        return NextResponse.json(
+          { error: 'newsRefreshInterval must be between 1 and 120 minutes' },
+          { status: 400 }
+        );
+      }
+      
+      updateSetting('newsRefreshInterval', interval.toString());
+      console.log(`[settings] newsRefreshInterval updated to ${interval} minutes`);
+      
+      return NextResponse.json({
+        success: true,
+        newsRefreshInterval: interval,
+        message: '뉴스 갱신 주기가 업데이트되었습니다.'
+      });
+    }
+
+    return NextResponse.json({ error: 'No settings provided' }, { status: 400 });
+  } catch (error) {
+    console.error('Error updating settings via PATCH:', error);
+    return NextResponse.json(
+      { error: 'Failed to update settings' },
+      { status: 500 }
+    );
+  }
+}

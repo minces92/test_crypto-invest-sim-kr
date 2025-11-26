@@ -25,7 +25,10 @@ export default function NewsFeed() {
   return (
     <div className="Box mt-4 border">
       <div className="Box-header d-flex flex-justify-between flex-items-center">
-        <h2 className="Box-title">암호화폐 뉴스</h2>
+        <div>
+          <h2 className="Box-title">암호화폐 뉴스</h2>
+          <p className="text-small color-fg-muted mt-1 mb-0">자동 갱신: 15분마다</p>
+        </div>
         <button
           className="btn btn-sm"
           onClick={() => fetchNews(true)}

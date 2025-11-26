@@ -25,7 +25,8 @@ const REFRESH_INTERVAL = 15 * 60 * 1000; // 15 minutes
 
 export const NewsProvider = ({ children }: { children: ReactNode }) => {
   const [forceRefresh, setForceRefresh] = useState(false);
-  const { news, isLoading, isError, mutate } = useNewsData('crypto', forceRefresh);
+  // Do not force a 'crypto' query here; allow the hook to use its default (server-side)
+  const { news, isLoading, isError, mutate } = useNewsData('', forceRefresh);
 
   useEffect(() => {
     // forceRefresh가 true였다가 데이터 로딩이 끝나면 다시 false로 돌려놓습니다.

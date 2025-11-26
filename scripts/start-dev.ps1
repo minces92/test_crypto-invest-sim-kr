@@ -23,12 +23,35 @@ if (-not (Test-Path "node_modules")) {
 }
 
 Write-Host ""
-Write-Host "[3단계] 개발 서버 시작" -ForegroundColor Green
-Write-Host ""
-Write-Host "브라우저에서 http://localhost:3000 을 열어주세요" -ForegroundColor Cyan
-Write-Host ""
-Write-Host "종료하려면 Ctrl+C를 누르세요" -ForegroundColor Gray
+Write-Host "[3단계] 개발 서버 시작 (백그라운드)" -ForegroundColor Green
 Write-Host ""
 
-npm run dev
+# Start dev server in a new process so we can poll the server and trigger server-side workers
+Write-Host "Starting 'npm run dev' in background..." -ForegroundColor Cyan
+$proc = Start-Process -FilePath "npm" -ArgumentList "run","dev" -NoNewWindow -PassThru
+
+Write-Host "Waiting for http://localhost:3000 to become available (timeout 60s)..." -ForegroundColor Yellow
+$maxAttempts = 60
+$attempt = 0
+while ($attempt -lt $maxAttempts) {
+    try {
+        $resp = Invoke-WebRequest -Uri "http://localhost:3000/" -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        if ($resp.StatusCode -ge 200 -and $resp.StatusCode -lt 400) {
+            Write-Host "Server is up (HTTP $($resp.StatusCode)). Triggering root request to initialize server-side workers..." -ForegroundColor Green
+            # Trigger a simple GET to root to ensure server-side layout imports (server-init) run
+            Invoke-WebRequest -Uri "http://localhost:3000/" -UseBasicParsing -TimeoutSec 5 -ErrorAction SilentlyContinue | Out-Null
+            Start-Process "http://localhost:3000/"
+            break
+        }
+    } catch {
+        # ignore and retry
+    }
+    Start-Sleep -Seconds 1
+    $attempt++
+}
+
+if ($attempt -ge $maxAttempts) {
+    Write-Host "Timed out waiting for dev server to start. Check the dev server output window." -ForegroundColor Red
+    Write-Host "If the site doesn't open automatically, open http://localhost:3000 in your browser after the dev server finishes building." -ForegroundColor Yellow
+}
 

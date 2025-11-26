@@ -20,6 +20,8 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState<Record<number, boolean>>({});
+  const [newsRefreshInterval, setNewsRefreshInterval] = useState<number>(15);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   const fetchLogs = async () => {
     setLoading(true);
@@ -36,16 +38,48 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
 
   useEffect(() => {
     fetchLogs();
+    const saved = localStorage.getItem('newsRefreshInterval');
+    if (saved) setNewsRefreshInterval(Number(saved));
   }, []);
+
+  const saveNewsRefreshInterval = () => {
+    localStorage.setItem('newsRefreshInterval', String(newsRefreshInterval));
+    setSaveMessage('✓ 설정이 저장되었습니다.');
+    setTimeout(() => setSaveMessage(null), 2500);
+    window.dispatchEvent(new CustomEvent('newsRefreshIntervalChanged', { detail: { interval: newsRefreshInterval * 60 * 1000 } }));
+  };
 
   return (
     <div className="Box Box--condensed">
       <div className="Box-header d-flex flex-justify-between">
-        <strong>알림 이력</strong>
+        <strong>설정 및 알림</strong>
         <div>
           <button className="btn" onClick={fetchLogs} disabled={loading}>새로고침</button>
           <button className="btn" onClick={() => onClose && onClose()}>닫기</button>
         </div>
+      </div>
+      
+      {/* Settings Section */}
+      <div style={{ padding: '12px', borderBottom: '1px solid #eee', backgroundColor: '#f6f8fa' }}>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <label style={{ fontSize: '12px', fontWeight: '600', margin: 0 }}>뉴스 갱신 주기:</label>
+          <input
+            type="number"
+            min="1"
+            max="120"
+            value={newsRefreshInterval}
+            onChange={(e) => setNewsRefreshInterval(Math.max(1, Math.min(120, Number(e.target.value))))}
+            style={{ padding: '4px 6px', border: '1px solid #d0d7de', borderRadius: '4px', width: '60px', fontSize: '12px' }}
+          />
+          <span style={{ fontSize: '12px' }}>분</span>
+          <button className="btn btn-sm" onClick={saveNewsRefreshInterval} style={{ marginLeft: '4px' }}>저장</button>
+          {saveMessage && <span style={{ fontSize: '11px', color: '#1a7f0f' }}>{saveMessage}</span>}
+        </div>
+      </div>
+
+      {/* Logs Section */}
+      <div style={{ fontSize: '12px', padding: '4px 12px', color: '#57606a', borderBottom: '1px solid #eee' }}>
+        알림 이력 (최근 50건)
       </div>
       <div style={{ maxHeight: 300, overflow: 'auto' }}>
         {loading && <div className="p-3">로딩 중...</div>}

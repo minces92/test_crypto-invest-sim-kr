@@ -23,14 +23,28 @@ if not exist "node_modules" (
 )
 
 echo.
-echo [3단계] 개발 서버 시작
+echo [3단계] 개발 서버 시작 (백그라운드)
 echo.
-echo 브라우저에서 http://localhost:3000 을 열어주세요
-echo.
-echo 종료하려면 Ctrl+C를 누르세요
+echo 종료하려면 터미널에서 Ctrl+C를 누르세요
 echo.
 
-call npm run dev
+start "Next Dev" cmd /c "npm run dev"
+
+echo Waiting for http://localhost:3000 to become available (timeout 60s)...
+setlocal enabledelayedexpansion
+set max=60
+set i=0
+:waitloop
+powershell -Command "try { $r=(Invoke-WebRequest -Uri 'http://localhost:3000/' -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop); if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 400) { exit 0 } else { exit 1 } } catch { exit 1 }"
+if %errorlevel% equ 0 (
+    start "" "http://localhost:3000/"
+    goto :done
+)
+ping -n 2 127.0.0.1 >nul
+set /a i+=1
+if %i% lss %max% goto :waitloop
+echo Timed out waiting for dev server. Open http://localhost:3000 manually.
+:done
 
 pause
 

@@ -1,8 +1,11 @@
 import useSWR from 'swr';
 import { fetcher as safeFetcher } from '@/lib/fetcher';
 
-export function useNewsData(query: string = 'crypto', forceRefresh: boolean = false) {
-    const apiUrl = `/api/news?query=${encodeURIComponent(query)}${forceRefresh ? '&refresh=true' : ''}`;
+export function useNewsData(query: string = '', forceRefresh: boolean = false) {
+    // If no query is provided by the caller, leave it empty so the server can apply
+    // its own default query (which includes English and Korean crypto keywords).
+    const apiQuery = query && query.trim().length > 0 ? `query=${encodeURIComponent(query)}` : '';
+    const apiUrl = `/api/news${apiQuery ? `?${apiQuery}` : ''}${(apiQuery ? '&' : '?')}${forceRefresh ? 'refresh=true' : 'refresh=false'}`;
 
     const { data, error, isLoading, mutate } = useSWR(
         apiUrl,

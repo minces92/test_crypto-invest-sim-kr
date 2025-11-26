@@ -325,3 +325,4 @@ Fetched 5 news articles (forceRefresh: true)
  GET /api/candles?market=KRW-XRP&count=90 200 in 67ms
  GET /api/candles?market=KRW-ETH&count=90 200 in 76ms
  GET /api/tickers 200 in 16ms
+Press any key to continue . . . 

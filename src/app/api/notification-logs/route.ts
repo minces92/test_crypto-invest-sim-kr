@@ -1,16 +1,46 @@
 import { NextResponse } from 'next/server';
 import { getNotificationLogs } from '@/lib/cache';
 
+// Helper to wrap sync DB call with timeout to prevent blocking
+function withTimeout<T>(fn: () => T, timeoutMs: number): Promise<{ result: T | null; timedOut: boolean }> {
+  return new Promise((resolve) => {
+    let timedOut = false;
+    const timer = setTimeout(() => {
+      timedOut = true;
+      resolve({ result: null, timedOut: true });
+    }, timeoutMs);
+    try {
+      const result = fn();
+      clearTimeout(timer);
+      if (!timedOut) {
+        resolve({ result, timedOut: false });
+      }
+    } catch (err) {
+      clearTimeout(timer);
+      console.error('DB query error:', err);
+      resolve({ result: null, timedOut: false });
+    }
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
     const limitParam = url.searchParams.get('limit');
     const limit = limitParam ? Math.max(1, Math.min(1000, Number(limitParam))) : 100;
-    const logs = getNotificationLogs(limit);
-    return NextResponse.json({ logs });
+    
+    // Attempt to fetch logs with a 2-second timeout to prevent UI freeze
+    const { result: logs, timedOut } = await withTimeout(() => getNotificationLogs(limit), 2000);
+    
+    if (timedOut) {
+      console.warn('Notification logs query timed out after 2s; returning empty logs');
+      return NextResponse.json({ logs: [], warning: 'Database query timed out; no logs available' });
+    }
+    
+    return NextResponse.json({ logs: logs || [] });
   } catch (error) {
     console.error('Error reading notification logs:', error);
-    return NextResponse.json({ error: 'Failed to read notification logs' }, { status: 500 });
+    return NextResponse.json({ logs: [], error: 'Failed to read notification logs' }, { status: 200 });
   }
 }
 

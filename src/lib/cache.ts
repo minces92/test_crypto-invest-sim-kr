@@ -1006,3 +1006,65 @@ export function resetDatabase(): void {
   initializeDatabase(database);
 }
 
+/**
+ * 모든 설정 가져오기 (Issue #2: 서버-클라이언트 설정 동기화)
+ */
+export function getAllSettings(): Record<string, any> {
+  const database = getDatabase();
+  
+  try {
+    // 현재는 환경 변수 및 localStorage 기반이므로
+    // 향후 DB 테이블을 추가할 때를 대비해 구조만 반환
+    const newsRefreshInterval = Number(process.env.NEWS_REFRESH_INTERVAL_MIN) || 15;
+    const initialCash = Number(process.env.NEXT_PUBLIC_DEFAULT_INITIAL_CASH) || 1000000;
+    
+    return {
+      newsRefreshInterval,
+      initialCash,
+      notificationEnabled: true,
+      telegramNotifications: !!process.env.TELEGRAM_BOT_TOKEN,
+    };
+  } catch (err) {
+    console.error('[cache] Error fetching settings:', err);
+    return {
+      newsRefreshInterval: 15,
+      initialCash: 1000000,
+    };
+  }
+}
+
+/**
+ * 개별 설정 업데이트 (Issue #2: 서버-클라이언트 설정 동기화)
+ * 향후 DB 저장 또는 .env 파일 수정으로 확장 가능
+ */
+const dynamicSettings: Map<string, any> = new Map();
+
+export function updateSetting(key: string, value: any): void {
+  try {
+    // 현재는 메모리 기반, 향후 DB 또는 .env 파일로 확장
+    dynamicSettings.set(key, value);
+    console.log(`[settings] Updated ${key} = ${value}`);
+  } catch (err) {
+    console.error('[cache] Error updating setting:', err);
+  }
+}
+
+/**
+ * 특정 설정값 조회 (메모리 또는 .env에서)
+ */
+export function getSetting(key: string, defaultValue?: any): any {
+  // 우선 동적 설정에서 조회
+  if (dynamicSettings.has(key)) {
+    return dynamicSettings.get(key);
+  }
+  
+  // 환경 변수에서 조회
+  const envKey = `NEWS_${key.toUpperCase()}` || `${key.toUpperCase()}`;
+  const envValue = process.env[envKey];
+  if (envValue !== undefined) {
+    return envValue;
+  }
+  
+  return defaultValue;
+}
+

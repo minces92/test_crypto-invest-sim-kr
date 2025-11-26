@@ -433,30 +433,68 @@ export async function getNewsWithCache(
     }
   }
 
-  // API에서 데이터 가져오기 (로그 및 시간계산 추가)
-  const newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(query)}&language=${language}&sortBy=publishedAt&apiKey=${NEWS_API_KEY}`;
-  const start = Date.now();
-  console.log(`[cache] Fetching news: ${newsUrl}`);
-  let response;
-  try {
-    response = await fetchWithTimeout(newsUrl, {}, 7000); // 7s timeout
-    const duration = Date.now() - start;
-    console.log(`[cache] News fetch completed in ${duration}ms for query='${query}'`);
-  } catch (err) {
-    const duration = Date.now() - start;
-    console.error(`[cache] News fetch error after ${duration}ms for query='${query}':`, err instanceof Error ? err.message : String(err));
-    throw err;
+  // API에서 데이터 가져오기: 이중 요청 방식 (영어/한국어 분리)
+  // 방법: 영어 키워드와 한글 키워드를 분리하여 각각 요청 후 병합
+  const rawQuery = (query || '').trim();
+  const defaultQuery = 'cryptocurrency bitcoin ethereum 암호화폐 코인';
+  const effectiveQuery = rawQuery.length > 0 ? rawQuery : defaultQuery;
+
+  // 영어/한글 키워드 분리
+  const allTokens = effectiveQuery.split(/\s+/).filter(Boolean);
+  const enTokens = allTokens.filter(t => /^[a-zA-Z0-9\-]+$/.test(t)); // 영어 및 숫자만
+  const koTokens = allTokens.filter(t => /[가-힣]/.test(t)); // 한글 포함
+
+  const NEWS_API_KEY_VAL = NEWS_API_KEY;
+  
+  // 각 언어별 요청 함수
+  async function fetchNewsWithLang(tokens: string[], lang: string): Promise<any[]> {
+    if (tokens.length === 0) return [];
+    
+    const qParam = tokens.length > 1 
+      ? tokens.map(t => `"${t}"`).join(' OR ')
+      : tokens[0];
+    
+    const newsUrl = `https://newsapi.org/v2/everything?q=${encodeURIComponent(qParam)}&language=${lang}&sortBy=publishedAt&apiKey=${NEWS_API_KEY_VAL}`;
+    
+    const start = Date.now();
+    console.log(`[cache] Fetching news (${lang}): ${tokens.join(', ')}`);
+    
+    try {
+      const response = await fetchWithTimeout(newsUrl, {}, 7000);
+      const duration = Date.now() - start;
+      
+      if (!response.ok) {
+        const errorBody = await response.text();
+        console.error(`NewsAPI request failed (${lang}): ${response.status}`, errorBody);
+        return [];
+      }
+      
+      const data = await response.json();
+      console.log(`[cache] News fetch completed (${lang}) in ${duration}ms, got ${(data.articles || []).length} articles`);
+      return data.articles || [];
+    } catch (err) {
+      const duration = Date.now() - start;
+      console.warn(`[cache] News fetch error (${lang}) after ${duration}ms:`, err instanceof Error ? err.message : String(err));
+      return [];
+    }
   }
 
-  if (!response.ok) {
-    const errorBody = await response.text();
-    console.error(`NewsAPI request failed: ${response.status}`, errorBody);
-    // API 실패 시, 에러를 던져서 호출 측에서 처리하도록 함
-    throw new Error(`NewsAPI request failed with status ${response.status}`);
-  }
+  // 병렬로 영어/한글 뉴스 요청
+  const [enNews, koNews] = await Promise.all([
+    enTokens.length > 0 ? fetchNewsWithLang(enTokens, 'en') : Promise.resolve([]),
+    koTokens.length > 0 ? fetchNewsWithLang(koTokens, 'ko') : Promise.resolve([])
+  ]);
 
-  const data = await response.json();
-  const freshData: NewsCacheData[] = data.articles || [];
+  // 결과 병합 및 중복 제거 (URL 기반)
+  const mergedArticles = [...enNews, ...koNews];
+  const seen = new Set<string>();
+  const freshData: NewsCacheData[] = mergedArticles
+    .filter(article => {
+      if (seen.has(article.url)) return false;
+      seen.add(article.url);
+      return true;
+    })
+    .slice(0, 50); // 최대 50개
 
   if (freshData.length === 0) {
     // 새 뉴스가 없으면 빈 배열 반환 (오래된 캐시를 저장하지 않음)
@@ -541,44 +579,22 @@ export async function getNewsWithCache(
 
   transaction();
 
-  // 트랜잭션 커밋 후 실제 알림 전송 및 로그 기록
+  // 트랜잭션 커밋 후 알림을 큐에 등록 (영속 작업 큐)
   (async () => {
-    for (const item of notifyQueue) {
-      try {
-        const telegram = await import('./telegram');
-        // small delay between sends to avoid burst to Telegram
-        await new Promise(r => setTimeout(r, 200));
-        const sent = await telegram.sendMessage(item.message, 'HTML');
-        logNotificationAttempt({
+    try {
+      const q = await import('./notification-queue');
+      for (const item of notifyQueue) {
+        q.enqueueNotification({
           transactionId: null,
           sourceType: 'news',
           channel: 'telegram',
           payload: item.message,
-          attemptNumber: 1,
-          success: !!sent,
-          responseCode: sent ? 200 : 0,
-          responseBody: sent ? 'ok' : 'failed',
+          meta: { url: item.url, sentiment: item.sentiment }
         });
-
-        consoleLogNotification('NewsSend', { url: item.url, sent });
-
-        if (sent) {
-          database.prepare('UPDATE news_cache SET notified = 1 WHERE url = ?').run(item.url);
-        }
-      } catch (err) {
-        console.error('News notification failed:', err);
-        logNotificationAttempt({
-          transactionId: null,
-          sourceType: 'news',
-          channel: 'telegram',
-          payload: item.message,
-          attemptNumber: 1,
-          success: false,
-          responseCode: null,
-          responseBody: err instanceof Error ? err.message : String(err),
-        });
-        consoleLogNotification('NewsSendError', { url: item.url, error: err instanceof Error ? err.message : String(err) });
       }
+      consoleLogNotification('NewsEnqueued', { count: notifyQueue.length });
+    } catch (err) {
+      console.error('Enqueue news notifications failed:', err instanceof Error ? err.message : String(err));
     }
   })();
 

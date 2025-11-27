@@ -7,7 +7,7 @@ export async function POST(request: Request) {
     if (!transactionId) return NextResponse.json({ error: 'transactionId required' }, { status: 400 });
 
     const cache = await import('@/lib/cache');
-    const txs = cache.getTransactions();
+  const txs = await cache.getTransactions();
     const tx = txs.find((t: any) => t.id === transactionId);
     if (!tx) return NextResponse.json({ error: 'transaction not found' }, { status: 404 });
 
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
       const message = `\n<b>🔔 신규 거래 알림 (재전송)</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>종목:</b> ${marketName}\n<b>수량:</b> ${Number(tx.amount).toFixed(6)}\n<b>가격:</b> ${Number(tx.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원\n-------------------------\n<a href="${siteUrl}">사이트에서 확인하기</a>`;
 
       const sent = await telegram.sendMessage(message, 'HTML');
-      cache.logNotificationAttempt({
+  await cache.logNotificationAttempt({
         transactionId,
         sourceType: 'transaction',
         channel: 'telegram',
@@ -30,7 +30,7 @@ export async function POST(request: Request) {
         responseBody: sent ? 'ok' : 'failed',
       });
 
-      if (sent) cache.markTransactionNotified(transactionId);
+  if (sent) await cache.markTransactionNotified(transactionId);
 
       return NextResponse.json({ ok: true, sent });
     } catch (err) {

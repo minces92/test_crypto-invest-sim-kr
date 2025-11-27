@@ -6,8 +6,8 @@ export async function POST(request: Request) {
     const { id } = body || {};
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-    const cache = await import('@/lib/cache');
-    const logs = cache.getNotificationLogs(1000);
+  const cache = await import('@/lib/cache');
+  const logs = await cache.getNotificationLogs(1000);
     const entry = logs.find((l: any) => l.id === id);
     if (!entry) return NextResponse.json({ error: 'log entry not found' }, { status: 404 });
     try {
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 
       const sent = await telegram.sendMessage(entry.payload, 'HTML');
 
-      cache.logNotificationAttempt({
+  await cache.logNotificationAttempt({
         transactionId: entry.transactionId || null,
         sourceType: entry.sourceType,
         channel: entry.channel,
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
       });
 
       if (sent && entry.transactionId) {
-        cache.markTransactionNotified(entry.transactionId);
+        await cache.markTransactionNotified(entry.transactionId);
       }
 
       return NextResponse.json({ ok: true, sent });

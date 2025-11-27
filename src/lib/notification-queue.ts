@@ -88,7 +88,7 @@ export async function processPendingJobs(limit = 20) {
       const now = new Date().toISOString();
 
       // log attempt via notification_log table to keep visibility
-      logNotificationAttempt({
+        await logNotificationAttempt({
         transactionId: r.transaction_id || null,
         sourceType: r.source_type,
         channel: r.channel,

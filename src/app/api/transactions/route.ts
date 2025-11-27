@@ -1,9 +1,9 @@
 import { NextResponse } from 'next/server';
-import { getTransactions, saveTransaction } from '@/lib/cache';
+import { getTransactions, saveTransaction, createJob } from '@/lib/cache';
 
 export async function GET() {
   try {
-    const transactions = getTransactions();
+    const transactions = await getTransactions();
     return NextResponse.json(transactions);
   } catch (error) {
     console.error('Error reading transactions:', error);
@@ -15,49 +15,59 @@ export async function GET() {
   }
 }
 
+import { z } from 'zod';
+
+const transactionSchema = z.object({
+  id: z.string(),
+  type: z.enum(['buy', 'sell']),
+  market: z.string().regex(/^KRW-[A-Z]+$/),
+  price: z.number().positive(),
+  amount: z.number().positive(),
+  timestamp: z.string().or(z.number()), // Allow string or number timestamp
+  source: z.string().optional(),
+  isAuto: z.boolean().optional(),
+  strategyType: z.string().optional(),
+});
+
 export async function POST(request: Request) {
   try {
     // 요청 본문 읽기
-    const body = await request.text();
-    
-    // 빈 본문 체크
-    if (!body || body.trim() === '') {
-      console.error('Empty request body');
-      return NextResponse.json({ error: 'Request body is empty' }, { status: 400 });
+    const body = await request.json();
+
+    // Zod 검증
+    const result = transactionSchema.safeParse(body);
+
+    if (!result.success) {
+      console.error('Validation error:', result.error.format());
+      return NextResponse.json({
+        error: 'Invalid transaction data',
+        details: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')
+      }, { status: 400 });
     }
 
-    // JSON 파싱 시도
-    let newTransaction;
-    try {
-      newTransaction = JSON.parse(body);
-    } catch (parseError) {
-      console.error('JSON parse error:', parseError);
-      console.error('Request body:', body);
-      return NextResponse.json({ error: 'Invalid JSON format' }, { status: 400 });
-    }
-
-    // 필수 필드 검증
-    if (!newTransaction || typeof newTransaction !== 'object') {
-      return NextResponse.json({ error: 'Invalid transaction data' }, { status: 400 });
-    }
-
-    if (!newTransaction.id || !newTransaction.type || !newTransaction.market || 
-        newTransaction.price == null || newTransaction.amount == null || !newTransaction.timestamp) {
-      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
-    }
+    const newTransaction = result.data;
 
     // DB에 저장
-    saveTransaction({
+    await saveTransaction({
       id: newTransaction.id,
       type: newTransaction.type,
       market: newTransaction.market,
       price: newTransaction.price,
       amount: newTransaction.amount,
-      timestamp: newTransaction.timestamp,
+      timestamp: new Date(newTransaction.timestamp).toISOString(), // Ensure ISO string
       source: newTransaction.source,
-      isAuto: newTransaction.isAuto,
+      isAuto: newTransaction.isAuto ? 1 : 0, // Convert boolean to number for SQLite
       strategyType: newTransaction.strategyType,
     });
+
+    // Create a background job for analysis (non-blocking)
+    (async () => {
+      try {
+        await createJob('analyze_transaction', { transactionId: newTransaction.id });
+      } catch (err) {
+        console.warn('Failed to enqueue analyze_transaction job for', newTransaction.id, err);
+      }
+    })();
 
     // 서버에서 텔레그램 전송 및 로그 기록 (서버가 담당)
     (async () => {
@@ -68,11 +78,11 @@ export async function POST(request: Request) {
         const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
         const typeText = newTransaction.type === 'buy' ? '📈 매수' : '📉 매도';
         const marketName = newTransaction.market.replace('KRW-', '');
-  const totalCostNum = Number(newTransaction.price) * Number(newTransaction.amount);
-  const totalCost = totalCostNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
+        const totalCostNum = Number(newTransaction.price) * Number(newTransaction.amount);
+        const totalCost = totalCostNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
 
-  // Execution time in KST
-  const executedAt = new Date(newTransaction.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+        // Execution time in KST
+        const executedAt = new Date(newTransaction.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 
         // 자동/수동 및 전략 정보
         const autoText = newTransaction.isAuto ? '자동' : (newTransaction.source === 'manual' ? '수동' : '자동');
@@ -127,7 +137,7 @@ export async function POST(request: Request) {
         let profitText = '';
         if (newTransaction.type === 'sell') {
           try {
-            const allTx = cache.getTransactions();
+            const allTx = await cache.getTransactions();
             // compute average buy price from previous buy transactions for this market (excluding this sell)
             const buys = allTx.filter((t: any) => t.market === newTransaction.market && t.type === 'buy');
             let avgBuyPrice = 0;
@@ -152,7 +162,7 @@ export async function POST(request: Request) {
 
         const sent = await telegram.sendMessage(message, 'HTML');
 
-        cache.logNotificationAttempt({
+        await cache.logNotificationAttempt({
           transactionId: newTransaction.id,
           sourceType: 'transaction',
           channel: 'telegram',
@@ -164,7 +174,7 @@ export async function POST(request: Request) {
         });
 
         if (sent) {
-          cache.markTransactionNotified(newTransaction.id);
+          await cache.markTransactionNotified(newTransaction.id);
         }
       } catch (err) {
         console.error('Server-side notification failed for transaction:', newTransaction.id, err);

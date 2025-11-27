@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "optimize:db": "node scripts/optimize-db.js",
     "migrate:notification-log": "node scripts/migrate-notification-log.js",
     "test": "vitest",
     "test:ui": "vitest --ui"
@@ -21,7 +22,8 @@
     "react-dom": "^18",
     "react-hot-toast": "^2.6.0",
     "recharts": "^3.3.0",
-    "swr": "^2.3.6"
+    "swr": "^2.3.6",
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.4.6",

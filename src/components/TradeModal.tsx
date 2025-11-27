@@ -55,7 +55,7 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
 
     if (orderType === 'buy') {
       const availableCash = cash;
-      
+
       if (inputMode === 'amount') {
         amount = numericValue;
         totalPrice = amount * ticker.trade_price;
@@ -69,7 +69,7 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
       }
     } else {
       const availableQuantity = asset?.quantity || 0;
-      
+
       if (inputMode === 'amount') {
         amount = numericValue;
         totalPrice = amount * ticker.trade_price;
@@ -88,7 +88,12 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
 
   const handleTrade = () => {
     if (calculatedAmount <= 0) {
-      alert('정확한 값을 입력해주세요.');
+      alert('수량은 0보다 커야 합니다.');
+      return;
+    }
+
+    if (total <= 0) {
+      alert('총 주문 금액은 0보다 커야 합니다.');
       return;
     }
 
@@ -149,9 +154,9 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
   if (!show || !ticker) return null;
 
   return (
-    <div 
-      className="Box-overlay d-flex flex-justify-center flex-items-center" 
-      style={{ 
+    <div
+      className="Box-overlay d-flex flex-justify-center flex-items-center"
+      style={{
         position: 'fixed',
         top: 0,
         left: 0,
@@ -168,9 +173,9 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
         }
       }}
     >
-      <div 
-        className="Box" 
-        style={{ 
+      <div
+        className="Box"
+        style={{
           width: '95%',
           maxWidth: '600px',
           maxHeight: '90vh',
@@ -183,7 +188,7 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="Box-header Box-header--divided" style={{ 
+        <div className="Box-header Box-header--divided" style={{
           backgroundColor: 'var(--color-canvas-subtle)',
           borderBottom: '1px solid var(--color-border-default)'
         }}>
@@ -195,35 +200,35 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
           </button>
         </div>
         <div className="Box-body" style={{ backgroundColor: 'var(--color-canvas-subtle)' }}>
-          
+
           <ChartComponent market={ticker.market} />
 
           <div className="UnderlineNav my-3">
             <div className="UnderlineNav-body">
-              <a 
-                href="#" 
-                className={`UnderlineNav-item ${orderType === 'buy' ? 'selected' : ''}`} 
+              <a
+                href="#"
+                className={`UnderlineNav-item ${orderType === 'buy' ? 'selected' : ''}`}
                 onClick={(e) => {
                   e.preventDefault();
                   setOrderType('buy');
                   setInputValue('');
                 }}
-                style={{ 
+                style={{
                   color: orderType === 'buy' ? 'var(--color-danger-fg)' : 'var(--color-fg-muted)',
                   borderBottomColor: orderType === 'buy' ? 'var(--color-danger-fg)' : 'transparent'
                 }}
               >
                 매수
               </a>
-              <a 
-                href="#" 
-                className={`UnderlineNav-item ${orderType === 'sell' ? 'selected' : ''}`} 
+              <a
+                href="#"
+                className={`UnderlineNav-item ${orderType === 'sell' ? 'selected' : ''}`}
                 onClick={(e) => {
                   e.preventDefault();
                   setOrderType('sell');
                   setInputValue('');
                 }}
-                style={{ 
+                style={{
                   color: orderType === 'sell' ? 'var(--color-success-fg)' : 'var(--color-fg-muted)',
                   borderBottomColor: orderType === 'sell' ? 'var(--color-success-fg)' : 'transparent'
                 }}
@@ -233,22 +238,22 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
             </div>
           </div>
 
-          <div className="mb-3" style={{ 
+          <div className="mb-3" style={{
             padding: '12px',
             backgroundColor: 'var(--color-canvas-default)',
             borderRadius: '6px',
             border: '1px solid var(--color-border-default)'
           }}>
             <p style={{ margin: '0 0 8px 0', color: 'var(--color-fg-muted)', fontSize: '14px' }}>
-              주문 가능: 
+              주문 가능:
               <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, marginLeft: '8px' }}>
-                {orderType === 'buy' 
-                  ? `${cash.toLocaleString('ko-KR')} 원` 
+                {orderType === 'buy'
+                  ? `${cash.toLocaleString('ko-KR')} 원`
                   : `${(asset?.quantity || 0).toFixed(8)} ${ticker.market.replace('KRW-', '')}`}
               </span>
             </p>
             <p style={{ margin: 0, color: 'var(--color-fg-muted)', fontSize: '14px' }}>
-              현재가: 
+              현재가:
               <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, marginLeft: '8px' }}>
                 {ticker.trade_price.toLocaleString('ko-KR')} 원
               </span>
@@ -343,11 +348,11 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
               </label>
             </div>
             <div className="form-group-body">
-              <input 
-                type="number" 
-                className="form-control" 
+              <input
+                type="number"
+                className="form-control"
                 placeholder={inputMode === 'amount' ? '0' : inputMode === 'percent' ? '0' : '0'}
-                value={inputValue} 
+                value={inputValue}
                 onChange={(e) => setInputValue(e.target.value)}
                 style={{
                   backgroundColor: 'var(--color-canvas-default)',
@@ -365,10 +370,10 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
               </label>
             </div>
             <div className="form-group-body">
-              <select 
-                id="strategy-select" 
-                className="form-select" 
-                value={selectedStrategy} 
+              <select
+                id="strategy-select"
+                className="form-select"
+                value={selectedStrategy}
                 onChange={(e) => setSelectedStrategy(e.target.value)}
                 style={{
                   backgroundColor: 'var(--color-canvas-default)',
@@ -386,7 +391,7 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
             </div>
           </div>
 
-          <div style={{ 
+          <div style={{
             padding: '12px',
             backgroundColor: 'var(--color-canvas-default)',
             borderRadius: '6px',
@@ -408,24 +413,24 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
           </div>
 
         </div>
-        <div className="Box-footer d-flex flex-justify-end" style={{ 
-          padding: '16px', 
+        <div className="Box-footer d-flex flex-justify-end" style={{
+          padding: '16px',
           borderTop: '1px solid var(--color-border-default)',
           backgroundColor: 'var(--color-canvas-subtle)',
           position: 'sticky',
           bottom: 0,
           zIndex: 10
         }}>
-          <button 
-            type="button" 
-            className="btn mr-2" 
+          <button
+            type="button"
+            className="btn mr-2"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               handleClose();
             }}
-            style={{ 
-              cursor: 'pointer', 
+            style={{
+              cursor: 'pointer',
               minWidth: '80px',
               backgroundColor: 'var(--color-canvas-default)',
               color: 'var(--color-fg-default)',
@@ -434,8 +439,8 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
           >
             취소
           </button>
-          <button 
-            type="button" 
+          <button
+            type="button"
             className={`btn ${orderType === 'buy' ? 'btn-danger' : 'btn-primary'}`}
             onClick={(e) => {
               e.preventDefault();

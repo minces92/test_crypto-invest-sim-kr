@@ -1,7 +1,7 @@
- 'use client';
+'use client';
 import React, { useEffect, useState } from 'react';
 
-  interface LogEntry {
+interface LogEntry {
   id: number;
   transactionId?: string | null;
   sourceType: string;
@@ -12,8 +12,8 @@ import React, { useEffect, useState } from 'react';
   responseBody?: string | null;
   attemptNumber?: number;
   createdAt: string;
-    createdAtKst?: string;
-    nextRetryAt?: string | null;
+  createdAtKst?: string;
+  nextRetryAt?: string | null;
 }
 
 export default function NotificationLogs({ onClose }: { onClose?: () => void }) {
@@ -29,6 +29,14 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
     setError(null);
     try {
       const res = await fetch('/api/notification-logs?limit=50');
+
+      if (res.status === 408) {
+        const data = await res.json();
+        setError(data.warning || '요청 시간이 초과되었습니다.');
+        setLogs([]);
+        return;
+      }
+
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       setLogs(data.logs || []);
@@ -43,15 +51,51 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
 
   useEffect(() => {
     fetchLogs();
-    const saved = localStorage.getItem('newsRefreshInterval');
-    if (saved) setNewsRefreshInterval(Number(saved));
+
+    // Fetch settings from server
+    fetch('/api/settings')
+      .then(res => res.json())
+      .then(data => {
+        if (data.settings && data.settings.newsRefreshInterval) {
+          setNewsRefreshInterval(Number(data.settings.newsRefreshInterval));
+        } else {
+          // Fallback to localStorage
+          const saved = localStorage.getItem('newsRefreshInterval');
+          if (saved) setNewsRefreshInterval(Number(saved));
+        }
+      })
+      .catch(err => {
+        console.error('Failed to fetch settings:', err);
+        // Fallback to localStorage
+        const saved = localStorage.getItem('newsRefreshInterval');
+        if (saved) setNewsRefreshInterval(Number(saved));
+      });
   }, []);
 
-  const saveNewsRefreshInterval = () => {
-    localStorage.setItem('newsRefreshInterval', String(newsRefreshInterval));
-    setSaveMessage('✓ 설정이 저장되었습니다.');
-    setTimeout(() => setSaveMessage(null), 2500);
-    window.dispatchEvent(new CustomEvent('newsRefreshIntervalChanged', { detail: { interval: newsRefreshInterval * 60 * 1000 } }));
+  const saveNewsRefreshInterval = async () => {
+    try {
+      // Save to server
+      const res = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ newsRefreshInterval }),
+      });
+
+      if (!res.ok) throw new Error('Failed to save settings to server');
+
+      // Save to localStorage (for client-side consistency)
+      localStorage.setItem('newsRefreshInterval', String(newsRefreshInterval));
+
+      setSaveMessage('✓ 설정이 저장되었습니다.');
+      setTimeout(() => setSaveMessage(null), 2500);
+
+      // Notify other components
+      window.dispatchEvent(new CustomEvent('newsRefreshIntervalChanged', { detail: { interval: newsRefreshInterval * 60 * 1000 } }));
+    } catch (err) {
+      console.error('Error saving settings:', err);
+      setSaveMessage('✗ 저장 실패');
+      setTimeout(() => setSaveMessage(null), 2500);
+    }
   };
 
   return (
@@ -63,7 +107,7 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
           <button className="btn" onClick={() => onClose && onClose()}>닫기</button>
         </div>
       </div>
-      
+
       {/* Settings Section */}
       <div style={{ padding: '12px', borderBottom: '1px solid #eee', backgroundColor: '#f6f8fa' }}>
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -127,12 +171,12 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
                         body: JSON.stringify({ id: l.id }),
                       });
                       const data = await res.json();
-                        if (data.ok) {
-                          fetchLogs();
-                        } else {
-                          console.error('Retry failed', data);
-                          setError(data.error || 'Retry failed');
-                        }
+                      if (data.ok) {
+                        fetchLogs();
+                      } else {
+                        console.error('Retry failed', data);
+                        setError(data.error || 'Retry failed');
+                      }
                     } catch (err) {
                       console.error('Retry request error', err);
                       setError(err instanceof Error ? err.message : String(err));
@@ -144,17 +188,17 @@ export default function NotificationLogs({ onClose }: { onClose?: () => void }) 
                   className="btn"
                   style={{ marginLeft: 8 }}
                   onClick={async () => {
-                      try {
+                    try {
                       const res = await fetch('/api/notification-logs/retry', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ id: l.id, force: true }),
                       });
-                        const data = await res.json();
-                        if (data.ok) fetchLogs(); else {
-                          console.error('Force retry failed', data);
-                          setError(data.error || 'Force retry failed');
-                        }
+                      const data = await res.json();
+                      if (data.ok) fetchLogs(); else {
+                        console.error('Force retry failed', data);
+                        setError(data.error || 'Force retry failed');
+                      }
                     } catch (err) {
                       console.error('Force retry request error', err);
                       setError(err instanceof Error ? err.message : String(err));

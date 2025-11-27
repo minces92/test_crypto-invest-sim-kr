@@ -19,7 +19,7 @@ async function processTransactionAnalysisJob(job: any) {
     throw new Error('transactionId is missing from the job payload');
   }
 
-  const allTransactions = getTransactions();
+  const allTransactions = await getTransactions();
   const newTransaction = allTransactions.find(t => t.id === transactionId);
 
   if (!newTransaction) {
@@ -49,7 +49,7 @@ async function processTransactionAnalysisJob(job: any) {
         maxTokens: metadata.maxTokens,
       });
       analysisText = aiResponse.trim().replace(/\n+/g, ' ').substring(0, 300);
-      getOrSaveTransactionAnalysis(newTransaction.id, analysisText, {
+  await getOrSaveTransactionAnalysis(newTransaction.id, analysisText, {
         market: newTransaction.market,
         type: newTransaction.type,
         price: newTransaction.price,
@@ -97,8 +97,9 @@ async function processTransactionAnalysisJob(job: any) {
 
     const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}${cashBalanceText}\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
 
-    const sent = await sendMessage(message, 'HTML');
-    logNotificationAttempt({
+    if (!newTransaction.notificationSent) {
+      const sent = await sendMessage(message, 'HTML');
+      await logNotificationAttempt({
       transactionId: newTransaction.id,
       sourceType: 'transaction',
       channel: 'telegram',
@@ -108,9 +109,11 @@ async function processTransactionAnalysisJob(job: any) {
       responseCode: sent ? 200 : 0,
       responseBody: sent ? 'ok' : 'failed',
     });
-
     if (sent) {
-      markTransactionNotified(newTransaction.id);
+        await markTransactionNotified(newTransaction.id);
+      }
+    } else {
+      console.log(`[worker] skipped notification for transaction ${newTransaction.id} as notification_sent is already true`);
     }
   } catch (notifyErr) {
     console.error('Notification failed for transaction job', newTransaction.id, notifyErr);
@@ -119,20 +122,20 @@ async function processTransactionAnalysisJob(job: any) {
 }
 
 export async function processPendingJobs() {
-  const jobs = getPendingJobs('analyze_transaction', 5); // Process 5 jobs at a time
+  const jobs = await getPendingJobs('analyze_transaction', 5); // Process 5 jobs at a time
   if (jobs.length === 0) {
     return 0;
   }
 
   for (const job of jobs) {
     try {
-      startJob(job.id);
+  await startJob(job.id);
       await processTransactionAnalysisJob(job);
-      updateJobStatus(job.id, 'completed', { message: 'Analysis and notification sent.' });
+  await updateJobStatus(job.id, 'completed', { message: 'Analysis and notification sent.' });
     } catch (error) {
       console.error(`[worker] Job ${job.id} failed:`, error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      updateJobStatus(job.id, 'failed', { error: errorMessage });
+  await updateJobStatus(job.id, 'failed', { error: errorMessage });
     }
   }
   return jobs.length;

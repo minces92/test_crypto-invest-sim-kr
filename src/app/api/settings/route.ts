@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 import { getSetting, updateSetting } from '@/lib/settings';
 
+// Force rebuild to resolve potential stale imports
+
 export async function GET() {
   try {
     const newsRefreshInterval = await getSetting('newsRefreshInterval', 15);

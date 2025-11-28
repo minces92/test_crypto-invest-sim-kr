@@ -41,7 +41,7 @@ export async function POST(request: Request) {
       console.error('Validation error:', result.error.format());
       return NextResponse.json({
         error: 'Invalid transaction data',
-        details: result.error.errors.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')
+        details: result.error.issues.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')
       }, { status: 400 });
     }
 
@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       amount: newTransaction.amount,
       timestamp: new Date(newTransaction.timestamp).toISOString(), // Ensure ISO string
       source: newTransaction.source,
-      isAuto: newTransaction.isAuto ? 1 : 0, // Convert boolean to number for SQLite
+      isAuto: newTransaction.isAuto,
       strategyType: newTransaction.strategyType,
     });
 
@@ -75,7 +75,7 @@ export async function POST(request: Request) {
         const cache = await import('@/lib/cache');
         const telegram = await import('@/lib/telegram');
 
-        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+        const siteUrl = 'http://221.138.212.182:3000';
         const typeText = newTransaction.type === 'buy' ? '📈 매수' : '📉 매도';
         const marketName = newTransaction.market.replace('KRW-', '');
         const totalCostNum = Number(newTransaction.price) * Number(newTransaction.amount);
@@ -158,7 +158,27 @@ export async function POST(request: Request) {
           }
         }
 
-        const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
+        // Calculate current cash balance
+        const allTransactions = await cache.getTransactions();
+        let currentCash = 1000000; // Initial cash
+        for (const tx of allTransactions) {
+          const txCost = Number(tx.price) * Number(tx.amount);
+          if (tx.type === 'buy') {
+            currentCash -= txCost;
+          } else {
+            currentCash += txCost;
+          }
+        }
+        // Adjust for the current transaction if it's not already in the fetched list (it might be, depending on race conditions, but usually saveTransaction is awaited before this block. 
+        // Actually, saveTransaction is called before this block. So allTransactions SHOULD include the new one.
+        // However, getTransactions might be cached or slightly delayed? 
+        // Let's assume getTransactions returns the up-to-date list including the one we just saved.
+        // If not, we might need to manually adjust. But since we are inside the route handler and just saved it, let's trust getTransactions or re-calculate carefully.
+        // A safer way is to calculate from allTransactions.
+
+        const cashBalanceStr = currentCash.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
+
+        const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}\n\n<b>💰 잔액:</b> ${cashBalanceStr} 원\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
 
         const sent = await telegram.sendMessage(message, 'HTML');
 

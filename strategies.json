@@ -52,5 +52,109 @@
     "description": "지수이동평균(RSI)은 시장의 흐름을 나타내는 것보다는 가격의 오버사고/언더사고를 검사하기 위해 적합합니다.",
     "id": "2025-11-21T04:11:34.875Z0.2521621704825511",
     "isActive": true
+  },
+  {
+    "strategyType": "rsi",
+    "market": "KRW-BTC",
+    "period": 14,
+    "buyThreshold": 30,
+    "sellThreshold": 70,
+    "name": "AI 추천: BTC RSI",
+    "description": "현재 RSI 값이 67.58로 추락하여 고가를 유지할 수 있는 가능성이 높아 KRW-BTC 시장은 점진적인 저가 확산에 옮겨질 가능성이 있습니다.",
+    "id": "2025-11-27T06:25:39.754Z0.3952150874893753",
+    "isActive": true
+  },
+  {
+    "strategyType": "rsi",
+    "market": "KRW-ETH",
+    "period": 14,
+    "buyThreshold": 30,
+    "sellThreshold": 70,
+    "name": "AI 추천: ETH RSI",
+    "description": "현재 RSI의 값이 59.81로 과매매 상태에 가까워 여기서는 반전의 위험이 있다는 것을 알 수 있습니다.",
+    "id": "2025-11-27T06:26:17.260Z0.5006618245082998",
+    "isActive": true
+  },
+  {
+    "strategyType": "rsi",
+    "market": "KRW-XRP",
+    "period": 14,
+    "buyThreshold": 30,
+    "sellThreshold": 70,
+    "name": "AI 추천: XRP RSI",
+    "description": "현재 RSI의 값이 50.34로 중립영역에 있어서, 탐색시장에 대응하는 RSI 전략을 추천합니다.",
+    "id": "2025-11-27T06:26:36.903Z0.316861951771221",
+    "isActive": true
+  },
+  {
+    "strategyType": "ma",
+    "market": "KRW-DOGE",
+    "period": 14,
+    "buyThreshold": 30,
+    "sellThreshold": 70,
+    "shortPeriod": 9,
+    "longPeriod": 25,
+    "name": "AI 추천: DOGE MA",
+    "description": "시장이 트렌드를 보여주고 있음",
+    "id": "2025-11-27T06:26:56.568Z0.8601051629979141",
+    "isActive": true
+  },
+  {
+    "strategyType": "volatility",
+    "market": "KRW-XRP",
+    "multiplier": 0.4,
+    "name": "XRP 단기 변동성 돌파",
+    "description": "단기간의 변동성 돌파를 노리는 단기 전략입니다. 익절/손절을 빠르게 설정하세요.",
+    "id": "2025-11-27T06:28:02.136Z0.1778772625750421",
+    "isActive": true
+  },
+  {
+    "strategyType": "momentum",
+    "market": "KRW-DOGE",
+    "period": 12,
+    "threshold": 5,
+    "name": "도지코인 변동성 돌파",
+    "description": "최근 가격 변동성이 커질 때 매수하여 단기적인 가격 급등을 포착하는 전략입니다. 위험성이 높습니다.",
+    "id": "2025-11-27T06:28:06.768Z0.9623427428212462",
+    "isActive": true
+  },
+  {
+    "strategyType": "ma",
+    "market": "KRW-ETH",
+    "shortPeriod": 10,
+    "longPeriod": 30,
+    "name": "이더리움 골든크로스",
+    "description": "단기 이동평균선이 장기 이동평균선을 상향 돌파할 때 매수하여 추세 상승장에서 수익을 얻는 전략입니다.",
+    "id": "2025-11-27T06:28:08.456Z0.6836885757859252",
+    "isActive": true
+  },
+  {
+    "strategyType": "ma",
+    "market": "KRW-BTC",
+    "shortPeriod": 5,
+    "longPeriod": 15,
+    "name": "BTC 초단기 이동평균",
+    "description": "초단기(5)·단기(15) 이동평균 크로스 기반 전략으로, 짧은 시간 프레임에서 추세변화를 포착합니다.",
+    "id": "2025-11-27T06:28:11.854Z0.9204924940120734",
+    "isActive": true
+  },
+  {
+    "strategyType": "rsi",
+    "market": "KRW-BTC",
+    "period": 14,
+    "buyThreshold": 30,
+    "sellThreshold": 70,
+    "name": "AI 추천: BTC RSI",
+    "description": "현재 RSI의 값이 48.30으로 균형상태인 것을 보아, 축소/팽창 상태가 아닌 오스케일레이션 시장입니다. RSI를 이용하여 매수/매도 신호를 받습니다.",
+    "id": "2025-11-28T23:17:57.630Z0.8120053762906339",
+    "isActive": true
+  },
+  {
+    "strategyType": "dca",
+    "market": "KRW-BTC",
+    "amount": 10000,
+    "interval": "daily",
+    "id": "2025-11-28T23:17:57.634Z0.7184754487491294",
+    "isActive": true
   }
 ]

@@ -58,8 +58,8 @@ export default function TransactionHistory() {
           const response = await fetch('/api/analyze-trade', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ 
-              transaction: tx, 
+            body: JSON.stringify({
+              transaction: tx,
               marketPrice: asset ? asset.avg_buy_price : tx.price
             }),
           });
@@ -70,33 +70,33 @@ export default function TransactionHistory() {
           }
 
           const data = await response.json();
-          
+
           if (data.error) {
             throw new Error(data.error);
           }
 
           // 분석 완료 - 결과 업데이트
-          setAnalysis(prev => ({ 
-            ...prev, 
-            [tx.id]: data.analysis || '분석 결과를 가져올 수 없습니다.' 
+          setAnalysis(prev => ({
+            ...prev,
+            [tx.id]: data.analysis || '분석 결과를 가져올 수 없습니다.'
           }));
-          
+
           // DB에서 로드한 것으로 표시
           loadedFromDbRef.current.add(tx.id);
         } catch (error) {
           console.error("Analysis failed:", error);
           const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-          
+
           // Ollama 관련 에러인 경우 더 친화적인 메시지 표시
           if (errorMessage.includes('Ollama') || errorMessage.includes('503')) {
-            setAnalysis(prev => ({ 
-              ...prev, 
-              [tx.id]: "⚠️ Ollama 서비스가 실행 중이지 않습니다." 
+            setAnalysis(prev => ({
+              ...prev,
+              [tx.id]: "⚠️ Ollama 서비스가 실행 중이지 않습니다."
             }));
           } else {
-            setAnalysis(prev => ({ 
-              ...prev, 
-              [tx.id]: `분석 실패: ${errorMessage}` 
+            setAnalysis(prev => ({
+              ...prev,
+              [tx.id]: `분석 실패: ${errorMessage}`
             }));
           }
         } finally {
@@ -113,7 +113,7 @@ export default function TransactionHistory() {
   // 수동으로 다시 분석하는 함수
   const handleReanalyze = async (tx: any) => {
     if (!tx || !tx.id) return;
-    
+
     // 분석 상태 초기화 (DB 캐시도 무시)
     loadedFromDbRef.current.delete(tx.id);
     setAnalyzingIds(prev => new Set(prev).add(tx.id));
@@ -124,8 +124,8 @@ export default function TransactionHistory() {
       const response = await fetch('/api/analyze-trade', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          transaction: tx, 
+        body: JSON.stringify({
+          transaction: tx,
           marketPrice: asset ? asset.avg_buy_price : tx.price
         }),
       });
@@ -136,28 +136,28 @@ export default function TransactionHistory() {
       }
 
       const data = await response.json();
-      
+
       if (data.error) {
         throw new Error(data.error);
       }
 
-      setAnalysis(prev => ({ 
-        ...prev, 
-        [tx.id]: data.analysis || '분석 결과를 가져올 수 없습니다.' 
+      setAnalysis(prev => ({
+        ...prev,
+        [tx.id]: data.analysis || '분석 결과를 가져올 수 없습니다.'
       }));
     } catch (error) {
       console.error("Analysis failed:", error);
       const errorMessage = error instanceof Error ? error.message : '알 수 없는 오류';
-      
+
       if (errorMessage.includes('Ollama') || errorMessage.includes('503')) {
-        setAnalysis(prev => ({ 
-          ...prev, 
-          [tx.id]: "⚠️ Ollama 서비스가 실행 중이지 않습니다." 
+        setAnalysis(prev => ({
+          ...prev,
+          [tx.id]: "⚠️ Ollama 서비스가 실행 중이지 않습니다."
         }));
       } else {
-        setAnalysis(prev => ({ 
-          ...prev, 
-          [tx.id]: `분석 실패: ${errorMessage}` 
+        setAnalysis(prev => ({
+          ...prev,
+          [tx.id]: `분석 실패: ${errorMessage}`
         }));
       }
     } finally {
@@ -180,8 +180,8 @@ export default function TransactionHistory() {
           <div className="text-center p-3">
             <p className="color-fg-muted">거래 내역이 없습니다.</p>
             <p className="color-fg-subtle text-small mt-2">
-              '자동 매매' 탭에서 투자 전략을 추가하거나, <br />
-              코인 목록에서 직접 '매수'/'매도'를 실행하여 거래를 시작할 수 있습니다.
+              &apos;자동 매매&apos; 탭에서 투자 전략을 추가하거나, <br />
+              코인 목록에서 직접 &apos;매수&apos;/&apos;매도&apos;를 실행하여 거래를 시작할 수 있습니다.
             </p>
           </div>
         ) : (
@@ -212,9 +212,9 @@ export default function TransactionHistory() {
                     <td>{tx.price.toLocaleString('ko-KR')}</td>
                     <td>{(tx.price * tx.amount).toLocaleString('ko-KR', { maximumFractionDigits: 0 })} 원</td>
                     <td>
-                      <span 
+                      <span
                         className={`text-small text-bold ${tx.isAuto ? 'color-fg-success' : 'color-fg-muted'}`}
-                        style={{ 
+                        style={{
                           padding: '2px 6px',
                           borderRadius: '4px',
                           backgroundColor: tx.isAuto ? 'rgba(63, 185, 80, 0.1)' : 'rgba(139, 148, 158, 0.1)'
@@ -225,9 +225,9 @@ export default function TransactionHistory() {
                     </td>
                     <td>
                       {tx.strategyType && (
-                        <span 
+                        <span
                           className="text-small"
-                          style={{ 
+                          style={{
                             color: 'var(--color-accent-fg)',
                             padding: '2px 6px',
                             borderRadius: '4px',
@@ -235,15 +235,15 @@ export default function TransactionHistory() {
                           }}
                         >
                           {tx.strategyType === 'dca' ? 'DCA' :
-                           tx.strategyType === 'ma' ? '이동평균' :
-                           tx.strategyType === 'rsi' ? 'RSI' :
-                           tx.strategyType === 'bband' ? '볼린저밴드' :
-                           tx.strategyType === 'news' ? '뉴스기반' :
-                           tx.strategyType === 'volatility' ? '변동성돌파' :
-                           tx.strategyType === 'momentum' ? '모멘텀' :
-                           // 수동 거래일 때는 매수/매도에 따라 라벨을 다르게 보여줍니다
-                           tx.strategyType === 'manual' ? (tx.type === 'buy' ? '수동 구매' : '수동 판매') :
-                           tx.strategyType}
+                            tx.strategyType === 'ma' ? '이동평균' :
+                              tx.strategyType === 'rsi' ? 'RSI' :
+                                tx.strategyType === 'bband' ? '볼린저밴드' :
+                                  tx.strategyType === 'news' ? '뉴스기반' :
+                                    tx.strategyType === 'volatility' ? '변동성돌파' :
+                                      tx.strategyType === 'momentum' ? '모멘텀' :
+                                        // 수동 거래일 때는 매수/매도에 따라 라벨을 다르게 보여줍니다
+                                        tx.strategyType === 'manual' ? (tx.type === 'buy' ? '수동 구매' : '수동 판매') :
+                                          tx.strategyType}
                         </span>
                       )}
                     </td>
@@ -251,8 +251,8 @@ export default function TransactionHistory() {
                       <div style={{ fontSize: '12px', lineHeight: '1.4' }}>
                         <span>{analysis[tx.id] || '분석중...'}</span>
                         {analysis[tx.id] && analysis[tx.id] !== '분석중...' && (
-                          <button 
-                            className="btn btn-sm ml-2" 
+                          <button
+                            className="btn btn-sm ml-2"
                             onClick={() => handleReanalyze(tx)}
                             disabled={analyzingIds.has(tx.id)}
                             style={{ fontSize: '10px', padding: '2px 6px' }}

@@ -59,8 +59,19 @@ function initDatabase() {
         amount REAL,
         timestamp TEXT,
         source TEXT,
-        isAuto INTEGER DEFAULT 0,
-        strategyType TEXT
+        is_auto INTEGER DEFAULT 0,
+        strategy_type TEXT,
+        notification_sent INTEGER DEFAULT 0
+      );
+
+      CREATE TABLE IF NOT EXISTS transaction_analysis_cache (
+        transaction_id TEXT PRIMARY KEY,
+        analysis TEXT,
+        market TEXT,
+        transaction_type TEXT,
+        price REAL,
+        amount REAL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
 
       CREATE TABLE IF NOT EXISTS settings (

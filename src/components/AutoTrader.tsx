@@ -54,6 +54,11 @@ export default function AutoTrader() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiRecommendation, setAiRecommendation] = useState<any>(null);
 
+  // Multi-Coin AI State
+  const [isMultiCoinMode, setIsMultiCoinMode] = useState(false);
+  const [multiCoinResults, setMultiCoinResults] = useState<any[]>([]);
+  const [selectedMultiMarkets, setSelectedMultiMarkets] = useState<string[]>([]);
+
   useEffect(() => {
     const strategy = recommendedStrategies.find(s => s.id === selectedStrategy);
     if (strategy) {
@@ -220,6 +225,49 @@ export default function AutoTrader() {
     }
   };
 
+  const handleGetBatchRecommendations = async () => {
+    // If no markets selected, default to top 5 by volume (simplified: just first 5 available)
+    const targets = selectedMultiMarkets.length > 0 ? selectedMultiMarkets : availableMarkets.slice(0, 5);
+
+    setAiLoading(true);
+    setMultiCoinResults([]);
+
+    try {
+      const response = await fetch('/api/ai/recommend-strategies-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markets: targets }),
+      });
+
+      if (!response.ok) throw new Error('Failed to get batch recommendations');
+
+      const data = await response.json();
+      setMultiCoinResults(data.results || []);
+      toast.success(`${data.results?.length || 0}개의 코인에 대한 추천을 가져왔습니다.`);
+
+    } catch (error) {
+      console.error(error);
+      toast.error('일괄 추천을 가져오는 데 실패했습니다.');
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  const applyBatchStrategy = (result: any) => {
+    if (!result || !result.recommendedStrategy) return;
+
+    const aiStrategyConfig: any = {
+      strategyType: result.recommendedStrategy,
+      market: result.market,
+      ...result.parameters,
+      name: `AI 추천: ${result.market.replace('KRW-', '')} ${result.recommendedStrategy.toUpperCase()}`,
+      description: result.reasoning || `AI가 추천한 ${result.recommendedStrategy} 전략`,
+    };
+
+    startStrategy(aiStrategyConfig);
+    toast.success(`${result.market} 전략이 시작되었습니다.`);
+  };
+
   const renderCustomInputs = () => (
     <>
       {strategyType === 'news' && (
@@ -374,45 +422,119 @@ export default function AutoTrader() {
                 <span className="color-fg-muted text-small">{strategySummary}</span>
               </div>
 
-              {/* AI Recommendation Section */}
               <div className="Box color-bg-subtle p-3 mb-3" style={{ width: '100%', maxWidth: 720, border: '1px dashed #0969da' }}>
                 <div className="d-flex flex-justify-between flex-items-center mb-2">
                   <strong className="d-flex flex-items-center">
                     <span className="mr-2">🤖 AI 전략 추천</span>
                     {aiLoading && <span className="AnimatedEllipsis">분석 중</span>}
                   </strong>
-                  <button
-                    type="button"
-                    className="btn btn-sm btn-primary"
-                    onClick={handleGetRecommendation}
-                    disabled={aiLoading || !market}
-                  >
-                    {aiLoading ? '분석 중...' : 'AI 추천 받기'}
-                  </button>
+                  <div className="d-flex" style={{ gap: '8px' }}>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${!isMultiCoinMode ? 'btn-primary' : ''}`}
+                      onClick={() => setIsMultiCoinMode(false)}
+                    >
+                      단일 코인
+                    </button>
+                    <button
+                      type="button"
+                      className={`btn btn-sm ${isMultiCoinMode ? 'btn-primary' : ''}`}
+                      onClick={() => setIsMultiCoinMode(true)}
+                    >
+                      다중 코인 (Beta)
+                    </button>
+                  </div>
                 </div>
-                <p className="text-small color-fg-muted mb-2">
-                  현재 선택된 마켓({market})의 데이터를 분석하여 최적의 전략을 제안합니다.
-                </p>
 
-                {aiRecommendation && (
-                  <div className="flash flash-success mt-2">
-                    <div className="d-flex flex-justify-between flex-items-start">
-                      <div>
-                        <strong>추천 전략: {aiRecommendation.recommendedStrategy}</strong>
-                        <p className="text-small mt-1 mb-1">{aiRecommendation.reasoning}</p>
-                        <div className="text-small color-fg-muted">
-                          설정값: {JSON.stringify(aiRecommendation.parameters)}
-                        </div>
-                      </div>
+                {!isMultiCoinMode ? (
+                  <>
+                    <div className="d-flex flex-justify-between flex-items-center mb-2">
+                      <p className="text-small color-fg-muted mb-0">
+                        현재 선택된 마켓({market})의 데이터를 분석하여 최적의 전략을 제안합니다.
+                      </p>
                       <button
                         type="button"
                         className="btn btn-sm"
-                        onClick={handleStartAIStrategy}
+                        onClick={handleGetRecommendation}
+                        disabled={aiLoading || !market}
                       >
-                        이 전략 적용하기
+                        {aiLoading ? '분석 중...' : 'AI 추천 받기'}
                       </button>
                     </div>
-                  </div>
+
+                    {aiRecommendation && (
+                      <div className="flash flash-success mt-2">
+                        <div className="d-flex flex-justify-between flex-items-start">
+                          <div>
+                            <strong>추천 전략: {aiRecommendation.recommendedStrategy}</strong>
+                            <p className="text-small mt-1 mb-1">{aiRecommendation.reasoning}</p>
+                            <div className="text-small color-fg-muted">
+                              설정값: {JSON.stringify(aiRecommendation.parameters)}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className="btn btn-sm"
+                            onClick={handleStartAIStrategy}
+                          >
+                            이 전략 적용하기
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <div className="d-flex flex-justify-between flex-items-center mb-2">
+                      <p className="text-small color-fg-muted mb-0">
+                        상위 5개 코인에 대해 AI가 최적의 전략을 일괄 추천합니다.
+                      </p>
+                      <button
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={handleGetBatchRecommendations}
+                        disabled={aiLoading}
+                      >
+                        {aiLoading ? '일괄 분석 중...' : '전체 추천 받기'}
+                      </button>
+                    </div>
+
+                    {aiLoading && (
+                      <div className="mt-3">
+                        {[1, 2, 3, 4, 5].map((i) => (
+                          <div key={i} className="Box p-2 mb-2 color-bg-subtle" style={{ opacity: 0.6 }}>
+                            <div className="d-flex flex-justify-between flex-items-start">
+                              <div style={{ width: '100%' }}>
+                                <div className="skeleton-box" style={{ width: '120px', height: '20px', marginBottom: '8px', backgroundColor: '#e1e4e8' }}></div>
+                                <div className="skeleton-box" style={{ width: '80%', height: '16px', backgroundColor: '#e1e4e8' }}></div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {multiCoinResults.length > 0 && (
+                      <div className="mt-3">
+                        {multiCoinResults.map((res, idx) => (
+                          <div key={idx} className="Box p-2 mb-2 color-bg-default">
+                            <div className="d-flex flex-justify-between flex-items-start">
+                              <div>
+                                <div className="f5 font-bold">{res.market} <span className="Label Label--info">{res.recommendedStrategy}</span></div>
+                                <p className="text-small color-fg-muted mt-1 mb-1">{res.reasoning}</p>
+                              </div>
+                              <button
+                                className="btn btn-sm btn-primary"
+                                onClick={() => applyBatchStrategy(res)}
+                              >
+                                적용
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

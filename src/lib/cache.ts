@@ -730,11 +730,19 @@ export async function resendFailedNotifications(limit = 20) {
 
 // 시작: 개발 환경에서 자동으로 주기적 재시도 작업 등록
 if (process.env.NODE_ENV !== 'test') {
+  let isResending = false;
   // 30초마다 실패 알림 재시도
-  setInterval(() => {
-    resendFailedNotifications(50).then(cnt => {
+  setInterval(async () => {
+    if (isResending) return;
+    isResending = true;
+    try {
+      const cnt = await resendFailedNotifications(50);
       if (cnt > 0) consoleLogNotification('ResendSummary', { resent: cnt });
-    }).catch(err => console.error('Resend worker error:', err));
+    } catch (err) {
+      console.error('Resend worker error:', err);
+    } finally {
+      isResending = false;
+    }
   }, 30 * 1000);
 }
 

@@ -170,19 +170,57 @@ export default function TransactionHistory() {
   };
 
 
+  const [filterType, setFilterType] = useState<'all' | 'buy' | 'sell'>('all');
+  const [filterMarket, setFilterMarket] = useState<string>('');
+
+  // ... (existing useEffects)
+
+  const filteredTransactions = transactions.filter(tx => {
+    if (filterType !== 'all' && tx.type !== filterType) return false;
+    if (filterMarket && !tx.market.toLowerCase().includes(filterMarket.toLowerCase())) return false;
+    return true;
+  });
+
+  const uniqueMarkets = Array.from(new Set(transactions.map(tx => tx.market)));
+
   return (
     <div className="Box mt-4 border">
-      <div className="Box-header">
+      <div className="Box-header d-flex flex-justify-between flex-items-center">
         <h2 className="Box-title">거래 내역</h2>
+        <div className="d-flex" style={{ gap: '8px' }}>
+          <select
+            className="form-select input-sm"
+            value={filterType}
+            onChange={(e) => setFilterType(e.target.value as 'all' | 'buy' | 'sell')}
+          >
+            <option value="all">모든 거래</option>
+            <option value="buy">매수</option>
+            <option value="sell">매도</option>
+          </select>
+          <select
+            className="form-select input-sm"
+            value={filterMarket}
+            onChange={(e) => setFilterMarket(e.target.value)}
+          >
+            <option value="">모든 종목</option>
+            {uniqueMarkets.map(m => (
+              <option key={m} value={m}>{m.replace('KRW-', '')}</option>
+            ))}
+          </select>
+        </div>
       </div>
       <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
-        {transactions.length === 0 ? (
+        {filteredTransactions.length === 0 ? (
           <div className="text-center p-3">
-            <p className="color-fg-muted">거래 내역이 없습니다.</p>
-            <p className="color-fg-subtle text-small mt-2">
-              &apos;자동 매매&apos; 탭에서 투자 전략을 추가하거나, <br />
-              코인 목록에서 직접 &apos;매수&apos;/&apos;매도&apos;를 실행하여 거래를 시작할 수 있습니다.
+            <p className="color-fg-muted">
+              {transactions.length === 0 ? '거래 내역이 없습니다.' : '조건에 맞는 거래 내역이 없습니다.'}
             </p>
+            {transactions.length === 0 && (
+              <p className="color-fg-subtle text-small mt-2">
+                &apos;자동 매매&apos; 탭에서 투자 전략을 추가하거나, <br />
+                코인 목록에서 직접 &apos;매수&apos;/&apos;매도&apos;를 실행하여 거래를 시작할 수 있습니다.
+              </p>
+            )}
           </div>
         ) : (
           <table className="Table Table--small">
@@ -200,7 +238,7 @@ export default function TransactionHistory() {
               </tr>
             </thead>
             <tbody>
-              {transactions.map(tx => (
+              {filteredTransactions.map(tx => (
                 tx && tx.market && (
                   <tr key={tx.id}>
                     <td>{new Date(tx.timestamp).toLocaleString('ko-KR', { hour12: false })}</td>

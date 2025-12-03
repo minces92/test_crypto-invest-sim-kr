@@ -58,6 +58,7 @@ export default function AutoTrader() {
   const [isMultiCoinMode, setIsMultiCoinMode] = useState(false);
   const [multiCoinResults, setMultiCoinResults] = useState<any[]>([]);
   const [selectedMultiMarkets, setSelectedMultiMarkets] = useState<string[]>([]);
+  const [processingMarket, setProcessingMarket] = useState<string | null>(null);
 
   useEffect(() => {
     const strategy = recommendedStrategies.find(s => s.id === selectedStrategy);
@@ -157,7 +158,8 @@ export default function AutoTrader() {
     return strategyConfig;
   };
 
-  const handleAddStrategy = () => {
+  const handleAddStrategy = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     const strategyConfig = getStrategyConfig();
     if (strategyConfig) {
       startStrategy(strategyConfig);
@@ -226,30 +228,53 @@ export default function AutoTrader() {
   };
 
   const handleGetBatchRecommendations = async () => {
-    // If no markets selected, default to top 5 by volume (simplified: just first 5 available)
+    // If no markets selected, default to top 5 by volume
     const targets = selectedMultiMarkets.length > 0 ? selectedMultiMarkets : availableMarkets.slice(0, 5);
 
     setAiLoading(true);
-    setMultiCoinResults([]);
+    setMultiCoinResults([]); // Clear previous results
 
     try {
-      const response = await fetch('/api/ai/recommend-strategies-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ markets: targets }),
-      });
+      for (const market of targets) {
+        setProcessingMarket(market);
 
-      if (!response.ok) throw new Error('Failed to get batch recommendations');
+        try {
+          // Use the single strategy recommendation endpoint sequentially
+          const response = await fetch('/api/ai/recommend-strategy', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ market: market }),
+          });
 
-      const data = await response.json();
-      setMultiCoinResults(data.results || []);
-      toast.success(`${data.results?.length || 0}개의 코인에 대한 추천을 가져왔습니다.`);
+          if (!response.ok) {
+            console.warn(`Failed to get recommendation for ${market}`);
+            continue;
+          }
+
+          const data = await response.json();
+
+          // Add to results immediately to show progress
+          setMultiCoinResults(prev => [...prev, {
+            market,
+            ...data
+          }]);
+
+        } catch (err) {
+          console.error(`Error processing ${market}:`, err);
+        }
+
+        // Small delay to allow UI to update and prevent total freezing if operations are heavy
+        await new Promise(resolve => setTimeout(resolve, 100));
+      }
+
+      toast.success('일괄 분석이 완료되었습니다.');
 
     } catch (error) {
       console.error(error);
-      toast.error('일괄 추천을 가져오는 데 실패했습니다.');
+      toast.error('일괄 추천 중 오류가 발생했습니다.');
     } finally {
       setAiLoading(false);
+      setProcessingMarket(null);
     }
   };
 
@@ -499,18 +524,11 @@ export default function AutoTrader() {
                       </button>
                     </div>
 
-                    {aiLoading && (
-                      <div className="mt-3">
-                        {[1, 2, 3, 4, 5].map((i) => (
-                          <div key={i} className="Box p-2 mb-2 color-bg-subtle" style={{ opacity: 0.6 }}>
-                            <div className="d-flex flex-justify-between flex-items-start">
-                              <div style={{ width: '100%' }}>
-                                <div className="skeleton-box" style={{ width: '120px', height: '20px', marginBottom: '8px', backgroundColor: '#e1e4e8' }}></div>
-                                <div className="skeleton-box" style={{ width: '80%', height: '16px', backgroundColor: '#e1e4e8' }}></div>
-                              </div>
-                            </div>
-                          </div>
-                        ))}
+                    {aiLoading && processingMarket && (
+                      <div className="flash flash-warn mb-2 mt-3">
+                        <span className="AnimatedEllipsis">
+                          <strong>{processingMarket}</strong> 분석 중
+                        </span>
                       </div>
                     )}
 
@@ -524,6 +542,7 @@ export default function AutoTrader() {
                                 <p className="text-small color-fg-muted mt-1 mb-1">{res.reasoning}</p>
                               </div>
                               <button
+                                type="button"
                                 className="btn btn-sm btn-primary"
                                 onClick={() => applyBatchStrategy(res)}
                               >

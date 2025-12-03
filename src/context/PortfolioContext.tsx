@@ -82,8 +82,8 @@ interface PortfolioContextType {
   assets: Asset[];
   transactions: Transaction[];
   strategies: Strategy[];
-  buyAsset: (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean) => boolean;
-  sellAsset: (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean) => boolean;
+  buyAsset: (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean) => Promise<boolean>;
+  sellAsset: (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean) => Promise<boolean>;
   startStrategy: (strategy: Omit<Strategy, 'id' | 'isActive'>) => void;
   stopStrategy: (strategyId: string) => void;
 }
@@ -132,19 +132,30 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       try {
         const response = await fetch('/api/strategies');
         const data = await response.json();
-        setStrategies(data);
-        data.forEach((s: Strategy) => {
-          if (s.isActive) {
-            let intervalMilliseconds = 30000;
-            if (s.strategyType === 'dca') {
-              intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[s.interval] || 24000;
+
+        if (Array.isArray(data)) {
+          setStrategies(data);
+          data.forEach((s: Strategy) => {
+            if (s.isActive) {
+              let intervalMilliseconds = 30000;
+              if (s.strategyType === 'dca') {
+                intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[s.interval] || 24000;
+              } else if (s.strategyType === 'news') {
+                intervalMilliseconds = 300000;
+              } else if (s.strategyType === 'volatility' || s.strategyType === 'momentum') {
+                intervalMilliseconds = 60000;
+              }
+              const intervalId = setInterval(() => executeStrategy(s), intervalMilliseconds);
+              strategyIntervalsRef.current[s.id] = intervalId;
             }
-            const intervalId = setInterval(() => executeStrategy(s), intervalMilliseconds);
-            strategyIntervalsRef.current[s.id] = intervalId;
-          }
-        });
+          });
+        } else {
+          console.warn('Fetched strategies data is not an array:', data);
+          setStrategies([]);
+        }
       } catch (error) {
         console.error('Error fetching strategies:', error);
+        setStrategies([]);
       }
     };
 
@@ -203,7 +214,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     source: string,
     strategyType: string,
     isAuto: boolean
-  ) => {
+  ): Promise<boolean> => {
     const newTransaction: Transaction = {
       id: new Date().toISOString() + Math.random(),
       type,
@@ -249,15 +260,18 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         console.error('Failed to save transaction, reverting optimistic update.');
         // Revert on failure
         setTransactions(prevTransactions => prevTransactions.filter(tx => tx.id !== newTransaction.id));
+        return false;
       }
+      return true;
     } catch (error) {
       console.error('Error saving transaction, reverting optimistic update:', error);
       // Revert on error
       setTransactions(prevTransactions => prevTransactions.filter(tx => tx.id !== newTransaction.id));
+      return false;
     }
   };
 
-  const buyAsset = (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): boolean => {
+  const buyAsset = async (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): Promise<boolean> => {
     const cost = price * amount;
     const { cash: currentCash } = getPortfolioState(transactions);
 
@@ -272,11 +286,10 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       return false;
     }
 
-    addTransaction('buy', market, price, amount, source, strategyType, isAuto);
-    return true;
+    return await addTransaction('buy', market, price, amount, source, strategyType, isAuto);
   };
 
-  const sellAsset = (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): boolean => {
+  const sellAsset = async (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean): Promise<boolean> => {
     const { assets: currentAssets } = getPortfolioState(transactions);
     const existingAsset = currentAssets.find(a => a.market === market);
 
@@ -289,8 +302,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     // 실제 매도 수량은 보유 수량으로 제한
     const sellAmount = Math.min(amount, existingAsset.quantity);
 
-    addTransaction('sell', market, price, sellAmount, source, strategyType, isAuto);
-    return true;
+    return await addTransaction('sell', market, price, sellAmount, source, strategyType, isAuto);
   };
 
   // --- Strategy Execution ---
@@ -614,16 +626,16 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         };
 
         if (isGlobal) {
-          // Process tickers in bounded concurrent batches to avoid long sequential blocking
-          const concurrency = 5; // number of parallel requests
+          // Process tickers sequentially to avoid system overload
+          const concurrency = 1; // Reduced from 5 to 1 for stability
           const currentTickers = tickersRef.current;
           const krwTickers = currentTickers.filter(t => t.market && t.market.startsWith('KRW-'));
           for (let i = 0; i < krwTickers.length; i += concurrency) {
             const chunk = krwTickers.slice(i, i + concurrency);
             await Promise.all(chunk.map(t => processMarket(t.market)));
-            // small delay between batches to be polite to the news API
+            // Increased delay to be very gentle to the system
             // eslint-disable-next-line no-await-in-loop
-            await new Promise(r => setTimeout(r, 200));
+            await new Promise(r => setTimeout(r, 500));
           }
         } else {
           // specific market
@@ -798,20 +810,17 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       clearInterval(intervalId);
       delete strategyIntervalsRef.current[strategyId];
     }
+
+    // Optimistic update
     setStrategies(prev => prev.filter(s => s.id !== strategyId));
 
     try {
-      await fetch('/api/strategies', {
-        method: 'DELETE',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ id: strategyId }),
-      });
+      await fetch(`/api/strategies?id=${strategyId}`, { method: 'DELETE' });
     } catch (error) {
-      console.error('Error deleting strategy:', error);
+      console.error('Failed to delete strategy from server:', error);
     }
   };
+
 
   return (
     <PortfolioContext.Provider value={{ cash, assets, transactions, strategies, buyAsset, sellAsset, startStrategy, stopStrategy }}>

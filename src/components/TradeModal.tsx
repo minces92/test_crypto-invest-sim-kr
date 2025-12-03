@@ -25,6 +25,12 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
   const [total, setTotal] = useState(0);
   const [selectedStrategy, setSelectedStrategy] = useState('manual');
 
+  const [tradeState, setTradeState] = useState<{
+    status: 'idle' | 'submitting' | 'success' | 'error';
+    message?: string;
+    progress?: number;
+  }>({ status: 'idle' });
+
   const asset = assets.find(a => a.market === ticker?.market);
 
   useEffect(() => {
@@ -33,6 +39,7 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
       setInputValue('');
       setInputMode('amount');
       setSelectedStrategy('manual');
+      setTradeState({ status: 'idle' });
     }
   }, [show, initialOrderType]);
 
@@ -86,14 +93,14 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
     setTotal(totalPrice);
   }, [inputValue, inputMode, orderType, ticker, cash, asset]);
 
-  const handleTrade = () => {
+  const handleTrade = async () => {
     if (calculatedAmount <= 0) {
-      alert('수량은 0보다 커야 합니다.');
+      setTradeState({ status: 'error', message: '수량은 0보다 커야 합니다.' });
       return;
     }
 
     if (total <= 0) {
-      alert('총 주문 금액은 0보다 커야 합니다.');
+      setTradeState({ status: 'error', message: '총 주문 금액은 0보다 커야 합니다.' });
       return;
     }
 
@@ -101,25 +108,43 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
     const source = strategy ? strategy.id : 'manual';
     const strategyType = strategy ? strategy.strategyType : 'manual';
 
-    let success = false;
-    if (orderType === 'buy') {
-      if (total > cash) {
-        alert(`현금이 부족합니다. (보유: ${cash.toLocaleString('ko-KR')}원, 필요: ${total.toLocaleString('ko-KR')}원)`);
-        return;
-      }
-      success = buyAsset(ticker!.market, ticker!.trade_price, calculatedAmount, source, strategyType, false);
-    } else {
-      const availableAmount = asset?.quantity || 0;
-      if (calculatedAmount > availableAmount) {
-        alert(`매도 가능 수량이 부족합니다. (보유: ${availableAmount}, 요청: ${calculatedAmount.toFixed(8)})`);
-        return;
-      }
-      success = sellAsset(ticker!.market, ticker!.trade_price, calculatedAmount, source, strategyType, false);
-    }
+    setTradeState({ status: 'submitting', progress: 10, message: '주문 처리 중...' });
 
-    if (success) {
-      setInputValue('');
-      handleClose();
+    try {
+      let success = false;
+
+      // Simulate progress
+      setTimeout(() => setTradeState(s => ({ ...s, progress: 40 })), 200);
+
+      if (orderType === 'buy') {
+        if (total > cash) {
+          setTradeState({ status: 'error', message: `현금이 부족합니다. (보유: ${cash.toLocaleString('ko-KR')}원)` });
+          return;
+        }
+        success = await buyAsset(ticker!.market, ticker!.trade_price, calculatedAmount, source, strategyType, false);
+      } else {
+        const availableAmount = asset?.quantity || 0;
+        if (calculatedAmount > availableAmount) {
+          setTradeState({ status: 'error', message: `매도 가능 수량이 부족합니다.` });
+          return;
+        }
+        success = await sellAsset(ticker!.market, ticker!.trade_price, calculatedAmount, source, strategyType, false);
+      }
+
+      setTradeState(s => ({ ...s, progress: 90 }));
+
+      if (success) {
+        setTradeState({ status: 'success', message: '거래가 완료되었습니다!', progress: 100 });
+        setTimeout(() => {
+          setInputValue('');
+          handleClose();
+        }, 1500);
+      } else {
+        setTradeState({ status: 'error', message: '거래 처리에 실패했습니다.' });
+      }
+    } catch (error) {
+      console.error('Trade error:', error);
+      setTradeState({ status: 'error', message: '거래 중 오류가 발생했습니다.' });
     }
   };
 
@@ -201,216 +226,249 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
         </div>
         <div className="Box-body" style={{ backgroundColor: 'var(--color-canvas-subtle)' }}>
 
-          <ChartComponent market={ticker.market} />
-
-          <div className="UnderlineNav my-3">
-            <div className="UnderlineNav-body">
-              <a
-                href="#"
-                className={`UnderlineNav-item ${orderType === 'buy' ? 'selected' : ''}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  setOrderType('buy');
-                  setInputValue('');
-                }}
-                style={{
-                  color: orderType === 'buy' ? 'var(--color-danger-fg)' : 'var(--color-fg-muted)',
-                  borderBottomColor: orderType === 'buy' ? 'var(--color-danger-fg)' : 'transparent'
-                }}
-              >
-                매수
-              </a>
-              <a
-                href="#"
-                className={`UnderlineNav-item ${orderType === 'sell' ? 'selected' : ''}`}
-                onClick={(e) => {
-                  e.preventDefault();
-                  setOrderType('sell');
-                  setInputValue('');
-                }}
-                style={{
-                  color: orderType === 'sell' ? 'var(--color-success-fg)' : 'var(--color-fg-muted)',
-                  borderBottomColor: orderType === 'sell' ? 'var(--color-success-fg)' : 'transparent'
-                }}
-              >
-                매도
-              </a>
+          {tradeState.status === 'submitting' && (
+            <div className="d-flex flex-column flex-items-center flex-justify-center p-4">
+              <div className="mb-2">
+                <svg style={{ boxSizing: "content-box", color: "var(--color-icon-primary)" }} width="32" height="32" viewBox="0 0 16 16" fill="none" className="anim-rotate">
+                  <circle cx="8" cy="8" r="7" stroke="currentColor" strokeOpacity="0.25" strokeWidth="2" fill="none"></circle>
+                  <path d="M15 8a7.002 7.002 0 00-7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" fill="none"></path>
+                </svg>
+              </div>
+              <div className="text-bold mb-2">{tradeState.message}</div>
+              <div style={{ width: '100%', height: '4px', backgroundColor: '#e1e4e8', borderRadius: '2px' }}>
+                <div style={{ width: `${tradeState.progress}%`, height: '100%', backgroundColor: '#0969da', borderRadius: '2px', transition: 'width 0.3s ease' }}></div>
+              </div>
             </div>
-          </div>
+          )}
 
-          <div className="mb-3" style={{
-            padding: '12px',
-            backgroundColor: 'var(--color-canvas-default)',
-            borderRadius: '6px',
-            border: '1px solid var(--color-border-default)'
-          }}>
-            <p style={{ margin: '0 0 8px 0', color: 'var(--color-fg-muted)', fontSize: '14px' }}>
-              주문 가능:
-              <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, marginLeft: '8px' }}>
-                {orderType === 'buy'
-                  ? `${cash.toLocaleString('ko-KR')} 원`
-                  : `${(asset?.quantity || 0).toFixed(8)} ${ticker.market.replace('KRW-', '')}`}
-              </span>
-            </p>
-            <p style={{ margin: 0, color: 'var(--color-fg-muted)', fontSize: '14px' }}>
-              현재가:
-              <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, marginLeft: '8px' }}>
-                {ticker.trade_price.toLocaleString('ko-KR')} 원
-              </span>
-            </p>
-          </div>
-
-          <div className="form-group mb-3">
-            <div className="form-group-header">
-              <label style={{ color: 'var(--color-fg-default)', marginBottom: '8px', display: 'block' }}>
-                입력 방식
-              </label>
+          {tradeState.status === 'success' && (
+            <div className="flash flash-success my-3">
+              <svg className="octicon octicon-check mr-2" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path d="M13.78 4.22a.75.75 0 0 1 0 1.06l-7.25 7.25a.75.75 0 0 1-1.06 0L2.22 9.28a.75.75 0 0 1 1.06-1.06L6 10.94l6.72-6.72a.75.75 0 0 1 1.06 0Z"></path></svg>
+              {tradeState.message}
             </div>
-            <div className="d-flex" style={{ gap: '8px', marginBottom: '12px' }}>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setInputMode('amount');
-                  setInputValue('');
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: inputMode === 'amount' ? 'var(--color-accent-fg)' : 'var(--color-canvas-default)',
-                  color: inputMode === 'amount' ? '#fff' : 'var(--color-fg-default)',
-                  borderColor: inputMode === 'amount' ? 'var(--color-accent-fg)' : 'var(--color-border-default)'
-                }}
-              >
-                수량
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setInputMode('percent');
-                  setInputValue('');
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: inputMode === 'percent' ? 'var(--color-accent-fg)' : 'var(--color-canvas-default)',
-                  color: inputMode === 'percent' ? '#fff' : 'var(--color-fg-default)',
-                  borderColor: inputMode === 'percent' ? 'var(--color-accent-fg)' : 'var(--color-border-default)'
-                }}
-              >
-                퍼센트
-              </button>
-              <button
-                type="button"
-                className="btn"
-                onClick={() => {
-                  setInputMode('price');
-                  setInputValue('');
-                }}
-                style={{
-                  flex: 1,
-                  backgroundColor: inputMode === 'price' ? 'var(--color-accent-fg)' : 'var(--color-canvas-default)',
-                  color: inputMode === 'price' ? '#fff' : 'var(--color-fg-default)',
-                  borderColor: inputMode === 'price' ? 'var(--color-accent-fg)' : 'var(--color-border-default)'
-                }}
-              >
-                금액
-              </button>
-            </div>
-          </div>
+          )}
 
-          {inputMode === 'percent' && (
-            <div className="mb-3">
-              <div className="d-flex" style={{ gap: '8px' }}>
-                {getQuickPercentButtons().map(percent => (
+          {tradeState.status === 'error' && (
+            <div className="flash flash-error my-3">
+              <svg className="octicon octicon-stop mr-2" viewBox="0 0 16 16" version="1.1" width="16" height="16" aria-hidden="true"><path d="M4.47.22A.75.75 0 0 1 5 0h6a.75.75 0 0 1 .53.22l4.25 4.25c.141.14.22.331.22.53v6a.75.75 0 0 1-.22.53l-4.25 4.25A.75.75 0 0 1 11 16H5a.75.75 0 0 1-.53-.22L.22 11.53A.75.75 0 0 1 0 11V5a.75.75 0 0 1 .22-.53L4.47.22Zm.84 1.28L1.5 5.31v5.38l3.81 3.81h5.38l3.81-3.81V5.31L10.69 1.5H5.31ZM8 4a.75.75 0 0 1 .75.75v3.5a.75.75 0 0 1-1.5 0v-3.5A.75.75 0 0 1 8 4Zm0 8a1 1 0 1 1 0-2 1 1 0 0 1 0 2Z"></path></svg>
+              {tradeState.message}
+            </div>
+          )}
+
+          {tradeState.status === 'idle' && (
+            <>
+              <ChartComponent market={ticker.market} />
+
+              <div className="UnderlineNav my-3">
+                <div className="UnderlineNav-body">
+                  <a
+                    href="#"
+                    className={`UnderlineNav-item ${orderType === 'buy' ? 'selected' : ''}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setOrderType('buy');
+                      setInputValue('');
+                    }}
+                    style={{
+                      color: orderType === 'buy' ? 'var(--color-danger-fg)' : 'var(--color-fg-muted)',
+                      borderBottomColor: orderType === 'buy' ? 'var(--color-danger-fg)' : 'transparent'
+                    }}
+                  >
+                    매수
+                  </a>
+                  <a
+                    href="#"
+                    className={`UnderlineNav-item ${orderType === 'sell' ? 'selected' : ''}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      setOrderType('sell');
+                      setInputValue('');
+                    }}
+                    style={{
+                      color: orderType === 'sell' ? 'var(--color-success-fg)' : 'var(--color-fg-muted)',
+                      borderBottomColor: orderType === 'sell' ? 'var(--color-success-fg)' : 'transparent'
+                    }}
+                  >
+                    매도
+                  </a>
+                </div>
+              </div>
+
+              <div className="mb-3" style={{
+                padding: '12px',
+                backgroundColor: 'var(--color-canvas-default)',
+                borderRadius: '6px',
+                border: '1px solid var(--color-border-default)'
+              }}>
+                <p style={{ margin: '0 0 8px 0', color: 'var(--color-fg-muted)', fontSize: '14px' }}>
+                  주문 가능:
+                  <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, marginLeft: '8px' }}>
+                    {orderType === 'buy'
+                      ? `${cash.toLocaleString('ko-KR')} 원`
+                      : `${(asset?.quantity || 0).toFixed(8)} ${ticker.market.replace('KRW-', '')}`}
+                  </span>
+                </p>
+                <p style={{ margin: 0, color: 'var(--color-fg-muted)', fontSize: '14px' }}>
+                  현재가:
+                  <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, marginLeft: '8px' }}>
+                    {ticker.trade_price.toLocaleString('ko-KR')} 원
+                  </span>
+                </p>
+              </div>
+
+              <div className="form-group mb-3">
+                <div className="form-group-header">
+                  <label style={{ color: 'var(--color-fg-default)', marginBottom: '8px', display: 'block' }}>
+                    입력 방식
+                  </label>
+                </div>
+                <div className="d-flex" style={{ gap: '8px', marginBottom: '12px' }}>
                   <button
-                    key={percent}
                     type="button"
-                    className="btn btn-sm"
-                    onClick={() => setInputValue(percent.toString())}
+                    className="btn"
+                    onClick={() => {
+                      setInputMode('amount');
+                      setInputValue('');
+                    }}
                     style={{
                       flex: 1,
+                      backgroundColor: inputMode === 'amount' ? 'var(--color-accent-fg)' : 'var(--color-canvas-default)',
+                      color: inputMode === 'amount' ? '#fff' : 'var(--color-fg-default)',
+                      borderColor: inputMode === 'amount' ? 'var(--color-accent-fg)' : 'var(--color-border-default)'
+                    }}
+                  >
+                    수량
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      setInputMode('percent');
+                      setInputValue('');
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: inputMode === 'percent' ? 'var(--color-accent-fg)' : 'var(--color-canvas-default)',
+                      color: inputMode === 'percent' ? '#fff' : 'var(--color-fg-default)',
+                      borderColor: inputMode === 'percent' ? 'var(--color-accent-fg)' : 'var(--color-border-default)'
+                    }}
+                  >
+                    퍼센트
+                  </button>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      setInputMode('price');
+                      setInputValue('');
+                    }}
+                    style={{
+                      flex: 1,
+                      backgroundColor: inputMode === 'price' ? 'var(--color-accent-fg)' : 'var(--color-canvas-default)',
+                      color: inputMode === 'price' ? '#fff' : 'var(--color-fg-default)',
+                      borderColor: inputMode === 'price' ? 'var(--color-accent-fg)' : 'var(--color-border-default)'
+                    }}
+                  >
+                    금액
+                  </button>
+                </div>
+              </div>
+
+              {inputMode === 'percent' && (
+                <div className="mb-3">
+                  <div className="d-flex" style={{ gap: '8px' }}>
+                    {getQuickPercentButtons().map(percent => (
+                      <button
+                        key={percent}
+                        type="button"
+                        className="btn btn-sm"
+                        onClick={() => setInputValue(percent.toString())}
+                        style={{
+                          flex: 1,
+                          backgroundColor: 'var(--color-canvas-default)',
+                          color: 'var(--color-fg-default)',
+                          borderColor: 'var(--color-border-default)'
+                        }}
+                      >
+                        {percent}%
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="form-group mb-3">
+                <div className="form-group-header">
+                  <label style={{ color: 'var(--color-fg-default)' }}>
+                    {inputMode === 'amount' ? '수량' : inputMode === 'percent' ? '퍼센트 (%)' : '금액 (원)'}
+                  </label>
+                </div>
+                <div className="form-group-body">
+                  <input
+                    type="number"
+                    className="form-control"
+                    placeholder={inputMode === 'amount' ? '0' : inputMode === 'percent' ? '0' : '0'}
+                    value={inputValue}
+                    onChange={(e) => setInputValue(e.target.value)}
+                    style={{
+                      backgroundColor: 'var(--color-canvas-default)',
+                      color: 'var(--color-fg-default)',
+                      borderColor: 'var(--color-border-default)'
+                    }}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group mb-3">
+                <div className="form-group-header">
+                  <label htmlFor="strategy-select" style={{ color: 'var(--color-fg-default)' }}>
+                    전략 연결
+                  </label>
+                </div>
+                <div className="form-group-body">
+                  <select
+                    id="strategy-select"
+                    className="form-select"
+                    value={selectedStrategy}
+                    onChange={(e) => setSelectedStrategy(e.target.value)}
+                    style={{
                       backgroundColor: 'var(--color-canvas-default)',
                       color: 'var(--color-fg-default)',
                       borderColor: 'var(--color-border-default)'
                     }}
                   >
-                    {percent}%
-                  </button>
-                ))}
+                    <option value="manual">수동 거래</option>
+                    {strategies.filter(s => s.market === ticker.market).map(s => (
+                      <option key={s.id} value={s.id}>
+                        {s.name || `${s.strategyType} - ${s.market}`}
+                      </option>
+                    ))}
+                  </select>
+                </div>
               </div>
-            </div>
+
+              <div style={{
+                padding: '12px',
+                backgroundColor: 'var(--color-canvas-default)',
+                borderRadius: '6px',
+                border: '1px solid var(--color-border-default)',
+                marginBottom: '16px'
+              }}>
+                <div className="d-flex flex-justify-between mb-2">
+                  <span style={{ color: 'var(--color-fg-muted)', fontSize: '14px' }}>거래 수량:</span>
+                  <span style={{ color: 'var(--color-fg-default)', fontWeight: 600 }}>
+                    {calculatedAmount.toFixed(8)} {ticker.market.replace('KRW-', '')}
+                  </span>
+                </div>
+                <div className="d-flex flex-justify-between">
+                  <span style={{ color: 'var(--color-fg-muted)', fontSize: '14px' }}>주문 총액:</span>
+                  <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, fontSize: '16px' }}>
+                    {total.toLocaleString('ko-KR', { maximumFractionDigits: 0 })} 원
+                  </span>
+                </div>
+              </div>
+            </>
           )}
-
-          <div className="form-group mb-3">
-            <div className="form-group-header">
-              <label style={{ color: 'var(--color-fg-default)' }}>
-                {inputMode === 'amount' ? '수량' : inputMode === 'percent' ? '퍼센트 (%)' : '금액 (원)'}
-              </label>
-            </div>
-            <div className="form-group-body">
-              <input
-                type="number"
-                className="form-control"
-                placeholder={inputMode === 'amount' ? '0' : inputMode === 'percent' ? '0' : '0'}
-                value={inputValue}
-                onChange={(e) => setInputValue(e.target.value)}
-                style={{
-                  backgroundColor: 'var(--color-canvas-default)',
-                  color: 'var(--color-fg-default)',
-                  borderColor: 'var(--color-border-default)'
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="form-group mb-3">
-            <div className="form-group-header">
-              <label htmlFor="strategy-select" style={{ color: 'var(--color-fg-default)' }}>
-                전략 연결
-              </label>
-            </div>
-            <div className="form-group-body">
-              <select
-                id="strategy-select"
-                className="form-select"
-                value={selectedStrategy}
-                onChange={(e) => setSelectedStrategy(e.target.value)}
-                style={{
-                  backgroundColor: 'var(--color-canvas-default)',
-                  color: 'var(--color-fg-default)',
-                  borderColor: 'var(--color-border-default)'
-                }}
-              >
-                <option value="manual">수동 거래</option>
-                {strategies.filter(s => s.market === ticker.market).map(s => (
-                  <option key={s.id} value={s.id}>
-                    {s.name || `${s.strategyType} - ${s.market}`}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{
-            padding: '12px',
-            backgroundColor: 'var(--color-canvas-default)',
-            borderRadius: '6px',
-            border: '1px solid var(--color-border-default)',
-            marginBottom: '16px'
-          }}>
-            <div className="d-flex flex-justify-between mb-2">
-              <span style={{ color: 'var(--color-fg-muted)', fontSize: '14px' }}>거래 수량:</span>
-              <span style={{ color: 'var(--color-fg-default)', fontWeight: 600 }}>
-                {calculatedAmount.toFixed(8)} {ticker.market.replace('KRW-', '')}
-              </span>
-            </div>
-            <div className="d-flex flex-justify-between">
-              <span style={{ color: 'var(--color-fg-muted)', fontSize: '14px' }}>주문 총액:</span>
-              <span style={{ color: 'var(--color-fg-default)', fontWeight: 600, fontSize: '16px' }}>
-                {total.toLocaleString('ko-KR', { maximumFractionDigits: 0 })} 원
-              </span>
-            </div>
-          </div>
 
         </div>
         <div className="Box-footer d-flex flex-justify-end" style={{
@@ -442,6 +500,7 @@ export default function TradeModal({ show, handleClose, ticker, initialOrderType
           <button
             type="button"
             className={`btn ${orderType === 'buy' ? 'btn-danger' : 'btn-primary'}`}
+            disabled={tradeState.status === 'submitting'}
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();

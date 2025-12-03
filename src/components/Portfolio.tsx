@@ -2,6 +2,7 @@
 
 import { usePortfolio } from '@/context/PortfolioContext';
 import { useData } from '@/context/DataProviderContext';
+import PortfolioShare from './PortfolioShare';
 
 interface Ticker {
   market: string;
@@ -38,7 +39,7 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
           <h5 className="f5 text-center"><strong>총 자산</strong></h5>
           <h3 className="f1 text-center text-bold mb-0">{totalValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</h3>
         </div>
-        
+
         <div className="d-flex flex-justify-between flex-items-center mb-3">
           <h6 className="f6 mb-0"><strong>보유 현금</strong></h6>
           <p className="text-normal mb-0">{cash.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</p>
@@ -50,7 +51,7 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
             <button className="btn btn-sm" onClick={() => window.location.reload()}>다시 시도</button>
           </div>
         )}
-        
+
         <hr className="my-3" />
 
         <h6 className="f6 mb-2"><strong>보유 자산 목록</strong></h6>
@@ -89,6 +90,7 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
           </ul>
         )}
       </div>
+      <PortfolioShare />
     </div>
   );
 }

@@ -2,6 +2,7 @@
 // This module starts background workers when imported in a server-side entry.
 import { processPendingJobs } from './notification-queue';
 import { getSetting } from './settings';
+import { createDailySnapshot } from './portfolio-snapshot';
 
 if (process.env.NODE_ENV !== 'test') {
   // 초기 실행
@@ -44,6 +45,15 @@ if (process.env.NODE_ENV !== 'test') {
       console.error('[server-init] Error polling settings:', err);
     }
   }, 60 * 1000); // 1분마다 확인
+  // Snapshot scheduler (Daily check)
+  // In a real app, use node-schedule. Here we just check every hour if today's snapshot exists.
+  setInterval(() => {
+    createDailySnapshot().catch(err => console.error('[server-init] Snapshot error:', err));
+  }, 60 * 60 * 1000); // Check every hour
+
+  // Run immediately on startup to ensure we have at least one
+  createDailySnapshot().catch(err => console.error('[server-init] Initial snapshot error:', err));
 }
+
 
 export { };

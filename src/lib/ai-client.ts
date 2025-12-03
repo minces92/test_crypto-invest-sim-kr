@@ -35,14 +35,16 @@ export class OllamaClient implements AIClient {
     try {
       const response = await fetch(`${this.baseUrl}/api/tags`, {
         method: 'GET',
-        signal: AbortSignal.timeout(10000),
+        signal: AbortSignal.timeout(15000), // Increased to 15s
       });
       if (!response.ok) {
+        console.warn(`Ollama check failed with status: ${response.status}`);
         return null;
       }
       const data = await response.json();
       return data.models?.map((m: any) => m.name) || [];
     } catch (error) {
+      console.error('Ollama connection error:', error);
       return null;
     }
   }
@@ -154,10 +156,10 @@ export function parseAIResponse(response: string): any {
   } catch (error) {
     console.error('Failed to parse AI response as JSON. The cleaned string was:', jsonString);
     console.error('Original parsing error:', error);
-    
+
     // 5. If parsing still fails, return an object indicating failure
-    return { 
-      raw: response, 
+    return {
+      raw: response,
       error: 'Parsing failed after cleanup',
       details: error instanceof Error ? error.message : String(error)
     };
@@ -204,8 +206,8 @@ export function createPriceAnalysisPrompt(context: PriceAnalysisContext): string
     macd ? `MACD 신호: ${macd.signal}` : null,
     bollinger
       ? `볼린저 밴드: ${bollinger.position}${typeof bollinger.upper === 'number' && typeof bollinger.lower === 'number'
-          ? ` (상단 ${bollinger.upper.toLocaleString()}원 / 하단 ${bollinger.lower.toLocaleString()}원)`
-          : ''}`
+        ? ` (상단 ${bollinger.upper.toLocaleString()}원 / 하단 ${bollinger.lower.toLocaleString()}원)`
+        : ''}`
       : null,
     ma
       ? `이동평균선: 단기 ${ma.short}, 장기 ${ma.long}${ma.cross ? ` (${ma.cross})` : ''}`

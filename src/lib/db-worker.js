@@ -79,7 +79,10 @@ function initDatabase() {
         value TEXT,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       );
-      
+    `);
+
+    // Jobs table with migration support
+    db.exec(`
       CREATE TABLE IF NOT EXISTS jobs (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         type TEXT,
@@ -92,9 +95,77 @@ function initDatabase() {
         created_at TEXT NOT NULL DEFAULT (datetime('now')),
         updated_at TEXT NOT NULL DEFAULT (datetime('now'))
       );
+    `);
 
+    // Check and migrate jobs table if needed
+    try {
+      const columns = db.prepare("PRAGMA table_info(jobs)").all();
+      const hasNextRunAt = columns.some(c => c.name === 'next_run_at');
+      if (!hasNextRunAt) {
+        console.log('Migrating jobs table: adding next_run_at column');
+        db.exec("ALTER TABLE jobs ADD COLUMN next_run_at TEXT");
+      }
+    } catch (e) {
+      console.error('Migration error for jobs table:', e);
+    }
+
+    db.exec(`
       CREATE INDEX IF NOT EXISTS idx_jobs_type_status_next
         ON jobs(type, status, next_run_at);
+
+      CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL DEFAULT 1,
+        snapshot_date DATE NOT NULL,
+        total_value REAL NOT NULL,
+        cash_balance REAL NOT NULL,
+        holdings JSON NOT NULL,
+        holdings_value REAL NOT NULL,
+        total_gain REAL NOT NULL,
+        total_return_pct REAL NOT NULL,
+        daily_return_pct REAL NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(user_id, snapshot_date)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_portfolio_snapshots_date 
+        ON portfolio_snapshots(snapshot_date DESC);
+
+      CREATE TABLE IF NOT EXISTS portfolio_shares (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        is_public BOOLEAN DEFAULT false,
+        share_token TEXT UNIQUE,
+        share_expiry TIMESTAMP,
+        show_holdings BOOLEAN DEFAULT true,
+        show_trades BOOLEAN DEFAULT true,
+        show_returns BOOLEAN DEFAULT true,
+        view_count INTEGER DEFAULT 0,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS custom_strategies (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        enabled BOOLEAN DEFAULT false,
+        buy_condition JSON NOT NULL,
+        sell_condition JSON NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
+
+      CREATE TABLE IF NOT EXISTS active_strategies (
+        id TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL,
+        strategy_type TEXT NOT NULL,
+        market TEXT NOT NULL,
+        is_active BOOLEAN DEFAULT true,
+        config JSON NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Initialize default settings if not exists

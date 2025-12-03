@@ -72,3 +72,4 @@
 - `docs/api/transactions.md`: 거래 API 문서
 - `docs/api/news.md`: 뉴스 API 문서
 
+

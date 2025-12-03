@@ -41,6 +41,7 @@ async function processTransactionAnalysisJob(job: any) {
         price: Number(newTransaction.price).toLocaleString('ko-KR'),
         amount: newTransaction.amount || 'N/A',
         timestamp: new Date(newTransaction.timestamp).toLocaleString('ko-KR'),
+        currentTime: new Date().toLocaleString('ko-KR'),
       });
 
       const aiResponse = await aiClient.generate(prompt, {
@@ -49,7 +50,7 @@ async function processTransactionAnalysisJob(job: any) {
         maxTokens: metadata.maxTokens,
       });
       analysisText = aiResponse.trim().replace(/\n+/g, ' ').substring(0, 300);
-  await getOrSaveTransactionAnalysis(newTransaction.id, analysisText, {
+      await getOrSaveTransactionAnalysis(newTransaction.id, analysisText, {
         market: newTransaction.market,
         type: newTransaction.type,
         price: newTransaction.price,
@@ -74,20 +75,20 @@ async function processTransactionAnalysisJob(job: any) {
 
     let profitText = '';
     if (newTransaction.type === 'sell') {
-        const buys = allTransactions.filter((t: any) => t.market === newTransaction.market && t.type === 'buy');
-        let avgBuyPrice = 0;
-        let totalQty = 0;
-        for (const b of buys) {
-            const q = Number(b.amount || 0);
-            const p = Number(b.price || 0);
-            avgBuyPrice = (avgBuyPrice * totalQty + p * q) / (totalQty + q || 1);
-            totalQty += q;
-        }
-        if (totalQty > 0 && avgBuyPrice > 0) {
-            const sellPrice = Number(newTransaction.price);
-            const profitPercent = ((sellPrice - avgBuyPrice) / avgBuyPrice) * 100;
-            profitText = `\n<b>평가(수익률):</b> ${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}% (평균매수가: ${avgBuyPrice.toLocaleString('ko-KR')} 원)`;
-        }
+      const buys = allTransactions.filter((t: any) => t.market === newTransaction.market && t.type === 'buy');
+      let avgBuyPrice = 0;
+      let totalQty = 0;
+      for (const b of buys) {
+        const q = Number(b.amount || 0);
+        const p = Number(b.price || 0);
+        avgBuyPrice = (avgBuyPrice * totalQty + p * q) / (totalQty + q || 1);
+        totalQty += q;
+      }
+      if (totalQty > 0 && avgBuyPrice > 0) {
+        const sellPrice = Number(newTransaction.price);
+        const profitPercent = ((sellPrice - avgBuyPrice) / avgBuyPrice) * 100;
+        profitText = `\n<b>평가(수익률):</b> ${profitPercent >= 0 ? '+' : ''}${profitPercent.toFixed(2)}% (평균매수가: ${avgBuyPrice.toLocaleString('ko-KR')} 원)`;
+      }
     }
 
     const initialCashSetting = getSetting('initial_cash');
@@ -100,16 +101,16 @@ async function processTransactionAnalysisJob(job: any) {
     if (!newTransaction.notificationSent) {
       const sent = await sendMessage(message, 'HTML');
       await logNotificationAttempt({
-      transactionId: newTransaction.id,
-      sourceType: 'transaction',
-      channel: 'telegram',
-      payload: message,
-      attemptNumber: 1,
-      success: !!sent,
-      responseCode: sent ? 200 : 0,
-      responseBody: sent ? 'ok' : 'failed',
-    });
-    if (sent) {
+        transactionId: newTransaction.id,
+        sourceType: 'transaction',
+        channel: 'telegram',
+        payload: message,
+        attemptNumber: 1,
+        success: !!sent,
+        responseCode: sent ? 200 : 0,
+        responseBody: sent ? 'ok' : 'failed',
+      });
+      if (sent) {
         await markTransactionNotified(newTransaction.id);
       }
     } else {
@@ -129,13 +130,13 @@ export async function processPendingJobs() {
 
   for (const job of jobs) {
     try {
-  await startJob(job.id);
+      await startJob(job.id);
       await processTransactionAnalysisJob(job);
-  await updateJobStatus(job.id, 'completed', { message: 'Analysis and notification sent.' });
+      await updateJobStatus(job.id, 'completed', { message: 'Analysis and notification sent.' });
     } catch (error) {
       console.error(`[worker] Job ${job.id} failed:`, error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-  await updateJobStatus(job.id, 'failed', { error: errorMessage });
+      await updateJobStatus(job.id, 'failed', { error: errorMessage });
     }
   }
   return jobs.length;

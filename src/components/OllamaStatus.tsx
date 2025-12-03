@@ -7,34 +7,35 @@ export default function OllamaStatus() {
   const [models, setModels] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    const checkOllama = async () => {
-      try {
-        const response = await fetch('/api/ollama-status', {
-          method: 'GET',
-          signal: AbortSignal.timeout(5000), // Increased timeout for server-side check
-        });
+  const checkOllama = async () => {
+    setStatus('checking');
+    try {
+      const response = await fetch('/api/ollama-status', {
+        method: 'GET',
+        signal: AbortSignal.timeout(5000),
+      });
 
-        if (response.ok) {
-          const data = await response.json();
-          if (data.status === 'connected') {
-            setModels(data.models || []);
-            setStatus('connected');
-            setError(null);
-          } else {
-            setStatus('disconnected');
-            setError(data.error || 'Unknown error from server');
-          }
+      if (response.ok) {
+        const data = await response.json();
+        if (data.status === 'connected') {
+          setModels(data.models || []);
+          setStatus('connected');
+          setError(null);
         } else {
           setStatus('disconnected');
-          setError(`HTTP ${response.status}`);
+          setError(data.error || 'Unknown error from server');
         }
-      } catch (err) {
+      } else {
         setStatus('disconnected');
-        setError(err instanceof Error ? err.message : '연결 실패');
+        setError(`HTTP ${response.status}`);
       }
-    };
+    } catch (err) {
+      setStatus('disconnected');
+      setError(err instanceof Error ? err.message : '연결 실패');
+    }
+  };
 
+  useEffect(() => {
     checkOllama();
     const interval = setInterval(checkOllama, 30000); // 30초마다 체크
 
@@ -69,7 +70,7 @@ export default function OllamaStatus() {
             {getStatusText()}
           </span>
         </div>
-        
+
         {status === 'connected' && (
           <>
             <div className="mb-2">
@@ -110,6 +111,12 @@ export default function OllamaStatus() {
             <div className="text-small color-fg-muted">
               AI 검증 없이 기본 전략만 실행됩니다.
             </div>
+            <button
+              className="btn btn-sm mt-2"
+              onClick={checkOllama}
+            >
+              재시도
+            </button>
           </div>
         )}
 
@@ -122,4 +129,3 @@ export default function OllamaStatus() {
     </div>
   );
 }
-

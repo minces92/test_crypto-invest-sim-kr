@@ -38,7 +38,7 @@ function ensureWorker() {
   }
 }
 
-function sendWorkerMessage(action: string, payload: any, timeoutMs = 10000) {
+function sendWorkerMessage(action: string, payload: any, timeoutMs = 30000) {
   ensureWorker();
   return new Promise((resolve, reject) => {
     const id = ++messageId;

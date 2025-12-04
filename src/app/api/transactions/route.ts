@@ -1,17 +1,14 @@
 import { NextResponse } from 'next/server';
 import { getTransactions, saveTransaction, createJob } from '@/lib/cache';
+import { handleApiError } from '@/lib/error-handler';
+import { measureExecutionTime } from '@/lib/monitoring';
 
 export async function GET() {
   try {
     const transactions = await getTransactions();
     return NextResponse.json(transactions);
   } catch (error) {
-    console.error('Error reading transactions:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { error: 'Failed to read transactions', details: errorMessage },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }
 
@@ -48,7 +45,7 @@ export async function POST(request: Request) {
     const newTransaction = result.data;
 
     // DB에 저장
-    await saveTransaction({
+    await measureExecutionTime('save_transaction', () => saveTransaction({
       id: newTransaction.id,
       type: newTransaction.type,
       market: newTransaction.market,
@@ -58,7 +55,7 @@ export async function POST(request: Request) {
       source: newTransaction.source,
       isAuto: newTransaction.isAuto,
       strategyType: newTransaction.strategyType,
-    });
+    }));
 
     // Create a background job for analysis (non-blocking)
     (async () => {
@@ -203,11 +200,6 @@ export async function POST(request: Request) {
 
     return NextResponse.json(newTransaction, { status: 201 });
   } catch (error) {
-    console.error('Error writing transaction:', error);
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json(
-      { error: 'Failed to write transaction', details: errorMessage },
-      { status: 500 }
-    );
+    return handleApiError(error);
   }
 }

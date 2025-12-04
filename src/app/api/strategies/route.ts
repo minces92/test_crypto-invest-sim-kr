@@ -1,5 +1,14 @@
 import { NextResponse } from 'next/server';
 import { run, queryAll } from '@/lib/db-client';
+import { handleApiError, AppError } from '@/lib/error-handler';
+import { z } from 'zod';
+
+const StrategySchema = z.object({
+  id: z.string(),
+  strategyType: z.string(),
+  market: z.string(),
+  isActive: z.boolean(),
+}).passthrough(); // Allow other config properties
 
 export async function GET() {
   try {
@@ -25,14 +34,19 @@ export async function GET() {
 
     return NextResponse.json(parsedStrategies);
   } catch (error) {
-    console.error('Failed to fetch active strategies:', error);
-    return NextResponse.json({ error: 'Failed to fetch strategies' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
+
+    const result = StrategySchema.safeParse(body);
+    if (!result.success) {
+      throw new AppError('INVALID_INPUT', 'Invalid strategy data', 400);
+    }
+
     const { id, strategyType, market, isActive, ...config } = body;
     const userId = 1;
 
@@ -49,8 +63,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ...body });
   } catch (error) {
-    console.error('Failed to save active strategy:', error);
-    return NextResponse.json({ error: 'Failed to save strategy' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
@@ -58,11 +71,13 @@ export async function DELETE(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const id = searchParams.get('id');
-    if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
+    if (!id) {
+      throw new AppError('MISSING_ID', 'ID required', 400);
+    }
 
     await run('DELETE FROM active_strategies WHERE id = ?', [id]);
     return NextResponse.json({ success: true });
   } catch (error) {
-    return NextResponse.json({ error: 'Failed to delete strategy' }, { status: 500 });
+    return handleApiError(error);
   }
 }

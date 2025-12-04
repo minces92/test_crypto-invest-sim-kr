@@ -1,34 +1,56 @@
 import { NextResponse } from 'next/server';
-import { getSetting, updateSetting } from '@/lib/settings';
-
-// Force rebuild to resolve potential stale imports
+import { queryAll, run } from '@/lib/db-client';
+import { handleApiError } from '@/lib/error-handler';
+import { DynamicSettingsSchema } from '@/lib/config';
+import { z } from 'zod';
 
 export async function GET() {
   try {
-    const newsRefreshInterval = await getSetting('newsRefreshInterval', 15);
-    return NextResponse.json({
-      settings: {
-        newsRefreshInterval
-      }
-    });
+    // Fetch all settings from DB
+    const rows = await queryAll('SELECT key, value FROM settings');
+
+    // Convert rows to object
+    const dbSettings: Record<string, any> = {};
+    if (Array.isArray(rows)) {
+      rows.forEach((row: any) => {
+        try {
+          // Attempt to parse JSON values, fallback to string
+          dbSettings[row.key] = JSON.parse(row.value);
+        } catch {
+          dbSettings[row.key] = row.value;
+        }
+      });
+    }
+
+    // Merge with defaults
+    const settings = DynamicSettingsSchema.parse(dbSettings);
+
+    return NextResponse.json(settings);
   } catch (error) {
-    console.error('Error fetching settings:', error);
-    return NextResponse.json({ error: 'Failed to fetch settings' }, { status: 500 });
+    return handleApiError(error);
   }
 }
 
-export async function PATCH(request: Request) {
+export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { newsRefreshInterval } = body;
 
-    if (newsRefreshInterval !== undefined) {
-      await updateSetting('newsRefreshInterval', newsRefreshInterval);
+    // Validate input
+    const validatedSettings = DynamicSettingsSchema.partial().parse(body);
+
+    // Update DB
+    const updates = Object.entries(validatedSettings);
+    if (updates.length > 0) {
+      for (const [key, value] of updates) {
+        await run(
+          'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP',
+          [key, JSON.stringify(value)]
+        );
+      }
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, settings: validatedSettings });
   } catch (error) {
-    console.error('Error updating settings:', error);
-    return NextResponse.json({ error: 'Failed to update settings' }, { status: 500 });
+    return handleApiError(error);
   }
 }

@@ -1,4 +1,5 @@
 import { queryGet, run } from './db-client';
+import { DynamicSettingsSchema, DynamicSettings } from './config';
 
 export interface Setting {
     key: string;
@@ -8,38 +9,46 @@ export interface Setting {
 
 /**
  * Get a setting value from the database.
- * Falls back to default value if not found or on error.
+ * Falls back to default value from schema if not found.
  */
-export async function getSetting<T>(key: string, defaultValue: T): Promise<T> {
+export async function getSetting<K extends keyof DynamicSettings>(key: K): Promise<DynamicSettings[K]> {
+    const defaultValue = DynamicSettingsSchema.shape[key].parse(undefined); // Get default from Zod schema
+
     try {
         const result = await queryGet('SELECT value FROM settings WHERE key = ?', [key]) as { value: string } | undefined;
 
         if (result && result.value !== undefined) {
-            // Try to parse as JSON if it looks like one, otherwise return string
             try {
                 return JSON.parse(result.value);
             } catch {
-                // If it's a simple string that's not JSON (e.g. "15"), check if we expect a number
+                // Handle legacy simple strings if any
                 if (typeof defaultValue === 'number') {
-                    return Number(result.value) as unknown as T;
+                    return Number(result.value) as any;
                 }
-                return result.value as unknown as T;
+                if (typeof defaultValue === 'boolean') {
+                    return (result.value === 'true' || result.value === '1') as any;
+                }
+                return result.value as any;
             }
         }
 
-        return defaultValue;
+        return defaultValue as DynamicSettings[K];
     } catch (error) {
         console.error(`[settings] Error fetching setting ${key}:`, error);
-        return defaultValue;
+        return defaultValue as DynamicSettings[K];
     }
 }
 
 /**
  * Update a setting value in the database.
  */
-export async function updateSetting(key: string, value: any): Promise<boolean> {
+export async function updateSetting<K extends keyof DynamicSettings>(key: K, value: DynamicSettings[K]): Promise<boolean> {
     try {
-        const stringValue = typeof value === 'string' ? value : JSON.stringify(value);
+        // Validate with schema
+        const partial = { [key]: value };
+        DynamicSettingsSchema.partial().parse(partial);
+
+        const stringValue = JSON.stringify(value);
 
         await run(
             `INSERT INTO settings (key, value, updated_at) 

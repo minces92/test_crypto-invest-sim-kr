@@ -3,6 +3,7 @@
  * Ollama, llama.cpp, KoboldCpp 등 다양한 백엔드를 지원
  */
 import { logAIInteraction } from './ai-logger';
+import { sanitizeUserInput } from './prompt-sanitizer';
 export interface AIGenerationOptions {
   model?: string;
   temperature?: number;
@@ -183,6 +184,8 @@ export interface PriceAnalysisContext {
   volume?: { current?: number; average?: number; ratio?: number };
 }
 
+
+
 export function createPriceAnalysisPrompt(context: PriceAnalysisContext): string {
   const {
     market,
@@ -198,25 +201,31 @@ export function createPriceAnalysisPrompt(context: PriceAnalysisContext): string
     volume,
   } = context;
 
+  const sanitizedMarket = sanitizeUserInput(market);
+  const sanitizedMacdSignal = macd ? sanitizeUserInput(macd.signal) : null;
+  const sanitizedBollingerPosition = bollinger ? sanitizeUserInput(bollinger.position) : null;
+  const sanitizedMaCross = ma && ma.cross ? sanitizeUserInput(ma.cross) : null;
+  const sanitizedSentimentLabel = sentiment ? sanitizeUserInput(sentiment.label) : null;
+
   const metricLines = [
-    `코인: ${market}`,
+    `코인: ${sanitizedMarket}`,
     `현재가: ${currentPrice.toLocaleString()}원`,
     `24h 변동률: ${change24h.toFixed(2)}%`,
     rsi !== undefined ? `RSI: ${rsi.toFixed(2)}` : null,
-    macd ? `MACD 신호: ${macd.signal}` : null,
+    macd ? `MACD 신호: ${sanitizedMacdSignal}` : null,
     bollinger
-      ? `볼린저 밴드: ${bollinger.position}${typeof bollinger.upper === 'number' && typeof bollinger.lower === 'number'
+      ? `볼린저 밴드: ${sanitizedBollingerPosition}${typeof bollinger.upper === 'number' && typeof bollinger.lower === 'number'
         ? ` (상단 ${bollinger.upper.toLocaleString()}원 / 하단 ${bollinger.lower.toLocaleString()}원)`
         : ''}`
       : null,
     ma
-      ? `이동평균선: 단기 ${ma.short}, 장기 ${ma.long}${ma.cross ? ` (${ma.cross})` : ''}`
+      ? `이동평균선: 단기 ${ma.short}, 장기 ${ma.long}${ma.cross ? ` (${sanitizedMaCross})` : ''}`
       : null,
     volume && (volume.current || volume.ratio)
       ? `거래량: 현재 ${volume.current?.toLocaleString() ?? 'N/A'} (${volume.ratio ? `${volume.ratio.toFixed(1)}%` : '평균 대비 데이터 없음'})`
       : null,
     sentiment
-      ? `뉴스/시장 심리: ${sentiment.label}${typeof sentiment.score === 'number' ? ` (점수: ${sentiment.score.toFixed(2)})` : ''}`
+      ? `뉴스/시장 심리: ${sanitizedSentimentLabel}${typeof sentiment.score === 'number' ? ` (점수: ${sentiment.score.toFixed(2)})` : ''}`
       : null,
   ].filter(Boolean).join('\n');
 
@@ -271,9 +280,6 @@ ${extraInstruction}답변은 반드시 다음 JSON 형식으로 해주세요:
 `;
 }
 
-/**
- * 전략 추천 프롬프트 생성
- */
 export function createStrategyRecommendationPrompt(
   cash: number,
   assets: Array<{ market: string; quantity: number }>,
@@ -285,7 +291,7 @@ export function createStrategyRecommendationPrompt(
 
 사용자 프로필:
 - 보유 현금: ${cash.toLocaleString()}원
-- 보유 코인: ${assets.map(a => `${a.market}: ${a.quantity}`).join(', ')}
+- 보유 코인: ${assets.map(a => `${sanitizeUserInput(a.market)}: ${a.quantity}`).join(', ')}
 - 리스크 선호도: ${riskTolerance === 'conservative' ? '보수적' : riskTolerance === 'aggressive' ? '공격적' : '중립'}
 - 현재 시장 국면: ${marketPhase === 'bull' ? '상승장' : marketPhase === 'bear' ? '하락장' : '횡보장'}
 

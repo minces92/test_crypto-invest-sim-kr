@@ -18,6 +18,7 @@ export default function Header() {
             <a href="/" className="Header-link mr-3">홈</a>
             <a href="/analytics" className="Header-link mr-3">분석</a>
             <a href="/strategies" className="Header-link mr-3">전략</a>
+            <a href="/backtest" className="Header-link mr-3">백테스트</a>
           </nav>
         </div>
 

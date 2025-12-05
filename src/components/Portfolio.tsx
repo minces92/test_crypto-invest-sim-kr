@@ -1,8 +1,7 @@
-'use client';
-
+import { useState } from 'react';
 import { usePortfolio } from '@/context/PortfolioContext';
 import { useData } from '@/context/DataProviderContext';
-import PortfolioShare from './PortfolioShare';
+import SharePortfolioModal from './SharePortfolioModal';
 
 interface Ticker {
   market: string;
@@ -16,6 +15,7 @@ interface PortfolioProps {
 export default function Portfolio({ handleOpenModal }: PortfolioProps) {
   const { cash, assets } = usePortfolio();
   const { tickers, loading: tickersLoading, error: tickersError } = useData();
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
 
   const tickersMap = tickers.reduce((acc, ticker) => {
     acc[ticker.market] = ticker;
@@ -31,8 +31,15 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
 
   return (
     <div className="Box mb-4">
-      <div className="Box-header">
+      <div className="Box-header d-flex flex-justify-between flex-items-center">
         <h2 className="Box-title">내 포트폴리오</h2>
+        <button
+          className="btn btn-sm"
+          onClick={() => setIsShareModalOpen(true)}
+        >
+          <svg className="octicon octicon-share mr-1" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M7.28 2.22a.75.75 0 0 1 0 1.06L4.81 5.75h6.44a4.75 4.75 0 0 1 0 9.5H11a.75.75 0 0 1 0-1.5h.25a3.25 3.25 0 0 0 0-6.5H4.81l2.47 2.47a.75.75 0 1 1-1.06 1.06l-3.75-3.75a.75.75 0 0 1 0-1.06l3.75-3.75a.75.75 0 0 1 1.06 0Z"></path></svg>
+          공유하기
+        </button>
       </div>
       <div className="Box-body">
         <div className="Box color-bg-subtle p-3 rounded-2 mb-3">
@@ -90,7 +97,11 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
           </ul>
         )}
       </div>
-      <PortfolioShare />
+
+      <SharePortfolioModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+      />
     </div>
   );
 }

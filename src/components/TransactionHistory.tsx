@@ -172,12 +172,41 @@ export default function TransactionHistory() {
 
   const [filterType, setFilterType] = useState<'all' | 'buy' | 'sell'>('all');
   const [filterMarket, setFilterMarket] = useState<string>('');
+  const [filterSource, setFilterSource] = useState<'all' | 'manual' | 'auto'>('all');
+  const [startDate, setStartDate] = useState<string>('');
+  const [endDate, setEndDate] = useState<string>('');
+  const [searchText, setSearchText] = useState<string>('');
 
   // ... (existing useEffects)
 
   const filteredTransactions = transactions.filter(tx => {
     if (filterType !== 'all' && tx.type !== filterType) return false;
     if (filterMarket && !tx.market.toLowerCase().includes(filterMarket.toLowerCase())) return false;
+
+    if (filterSource !== 'all') {
+      if (filterSource === 'auto' && !tx.isAuto) return false;
+      if (filterSource === 'manual' && tx.isAuto) return false;
+    }
+
+    if (startDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+      if (new Date(tx.timestamp) < start) return false;
+    }
+
+    if (endDate) {
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+      if (new Date(tx.timestamp) > end) return false;
+    }
+
+    if (searchText) {
+      const search = searchText.toLowerCase();
+      const marketName = tx.market.replace('KRW-', '').toLowerCase();
+      const strategy = (tx.strategyType || '').toLowerCase();
+      if (!marketName.includes(search) && !strategy.includes(search)) return false;
+    }
+
     return true;
   });
 
@@ -185,28 +214,69 @@ export default function TransactionHistory() {
 
   return (
     <div className="Box mt-4 border">
-      <div className="Box-header d-flex flex-justify-between flex-items-center">
-        <h2 className="Box-title">거래 내역</h2>
-        <div className="d-flex" style={{ gap: '8px' }}>
+      <div className="Box-header">
+        <div className="d-flex flex-justify-between flex-items-center mb-2">
+          <h2 className="Box-title">거래 내역</h2>
+          <div className="d-flex" style={{ gap: '8px' }}>
+            <select
+              className="form-select input-sm"
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value as 'all' | 'buy' | 'sell')}
+            >
+              <option value="all">모든 거래</option>
+              <option value="buy">매수</option>
+              <option value="sell">매도</option>
+            </select>
+            <select
+              className="form-select input-sm"
+              value={filterMarket}
+              onChange={(e) => setFilterMarket(e.target.value)}
+            >
+              <option value="">모든 종목</option>
+              {uniqueMarkets.map(m => (
+                <option key={m} value={m}>{m.replace('KRW-', '')}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="d-flex flex-items-center flex-wrap" style={{ gap: '8px' }}>
           <select
             className="form-select input-sm"
-            value={filterType}
-            onChange={(e) => setFilterType(e.target.value as 'all' | 'buy' | 'sell')}
+            value={filterSource}
+            onChange={(e) => setFilterSource(e.target.value as any)}
           >
-            <option value="all">모든 거래</option>
-            <option value="buy">매수</option>
-            <option value="sell">매도</option>
+            <option value="all">모든 출처</option>
+            <option value="manual">수동 거래</option>
+            <option value="auto">자동 매매</option>
           </select>
-          <select
-            className="form-select input-sm"
-            value={filterMarket}
-            onChange={(e) => setFilterMarket(e.target.value)}
-          >
-            <option value="">모든 종목</option>
-            {uniqueMarkets.map(m => (
-              <option key={m} value={m}>{m.replace('KRW-', '')}</option>
-            ))}
-          </select>
+
+          <div className="d-flex flex-items-center" style={{ gap: '4px' }}>
+            <input
+              type="date"
+              className="form-control input-sm"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              style={{ width: '130px' }}
+            />
+            <span className="text-small color-fg-muted">~</span>
+            <input
+              type="date"
+              className="form-control input-sm"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              style={{ width: '130px' }}
+            />
+          </div>
+
+          <input
+            type="text"
+            className="form-control input-sm"
+            placeholder="검색 (종목, 전략)"
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
+            style={{ flex: 1, minWidth: '150px' }}
+          />
         </div>
       </div>
       <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>

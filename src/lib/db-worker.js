@@ -12,9 +12,131 @@ function logSlowQuery(duration, sql) {
   }
 }
 
-// ... (initDatabase function remains same, not shown here for brevity if not changing)
+function initDatabase() {
+  if (db) return;
 
-// ... (sendResponse, sendError remain same)
+  try {
+    db = new Database(dbPath);
+    db.pragma('journal_mode = WAL');
+
+    // Transactions table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS transactions (
+        id TEXT PRIMARY KEY,
+        type TEXT NOT NULL,
+        market TEXT NOT NULL,
+        price REAL NOT NULL,
+        amount REAL NOT NULL,
+        timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+        isAuto INTEGER DEFAULT 0,
+        strategyType TEXT,
+        source TEXT
+      )
+    `);
+
+    // Notification Log table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS notification_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        type TEXT,
+        message TEXT,
+        message_hash TEXT,
+        status TEXT,
+        success INTEGER DEFAULT 0,
+        error TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        next_retry_at DATETIME,
+        retry_count INTEGER DEFAULT 0
+      )
+    `);
+
+    // Strategies table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS strategies (
+        id TEXT PRIMARY KEY,
+        market TEXT NOT NULL,
+        strategyType TEXT NOT NULL,
+        name TEXT,
+        params TEXT,
+        isActive INTEGER DEFAULT 1,
+        createdAt DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Settings table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,
+        value TEXT,
+        updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Portfolio Snapshots table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS portfolio_snapshots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        snapshot_date DATE,
+        total_value REAL,
+        cash_balance REAL,
+        holdings TEXT,
+        holdings_value REAL,
+        total_gain REAL,
+        total_return_pct REAL,
+        daily_return_pct REAL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
+    `);
+
+    // Portfolio Shares table
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS portfolio_shares (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        share_token TEXT UNIQUE NOT NULL,
+        name TEXT,
+        description TEXT,
+        show_holdings INTEGER DEFAULT 1,
+        show_returns INTEGER DEFAULT 1,
+        show_trades INTEGER DEFAULT 0,
+        view_count INTEGER DEFAULT 0,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        expires_at DATETIME
+      )
+    `);
+
+    // Indices
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_notification_retry 
+      ON notification_log(success, next_retry_at) 
+      WHERE success = 0
+    `);
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_notification_hash 
+      ON notification_log(message_hash)
+    `);
+
+    db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_transactions_market_time 
+      ON transactions(market, timestamp DESC)
+    `);
+
+  } catch (err) {
+    console.error('[DB Worker] Failed to initialize database:', err);
+    throw err;
+  }
+}
+
+function sendResponse(id, result) {
+  parentPort.postMessage({ id, ok: true, result });
+}
+
+function sendError(id, error) {
+  console.error('[DB Worker Error]', error);
+  parentPort.postMessage({ id, ok: false, error: error.message || String(error) });
+}
 
 parentPort.on('message', async (msg) => {
   const { id, action } = msg;

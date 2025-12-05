@@ -5,8 +5,9 @@ import toast from 'react-hot-toast';
 import { ReactNode, useMemo, useState, useEffect } from 'react';
 import { recommendedStrategies } from '@/lib/recommended-strategies';
 import BacktestRunner from './BacktestRunner';
+import StrategyBuilder from './StrategyBuilder';
 
-type ViewMode = 'recommended' | 'custom';
+type ViewMode = 'recommended' | 'simple' | 'custom';
 
 function CollapsibleSection({ title, children, defaultOpen = true }: { title: string; children: ReactNode; defaultOpen?: boolean }) {
   const [open, setOpen] = useState(defaultOpen);
@@ -293,6 +294,12 @@ export default function AutoTrader() {
     toast.success(`${result.market} 전략이 시작되었습니다.`);
   };
 
+  const handleSaveCustomStrategy = (strategy: any) => {
+    startStrategy(strategy);
+    toast.success(`커스텀 전략 '${strategy.name}'이 시작되었습니다.`);
+    setViewMode('recommended'); // Go back to main view or stay? Maybe stay to allow creating more.
+  };
+
   const renderCustomInputs = () => (
     <>
       {strategyType === 'news' && (
@@ -410,11 +417,18 @@ export default function AutoTrader() {
             추천 전략
           </button>
           <button
+            className={`btn btn-sm ${viewMode === 'simple' ? 'btn-primary' : ''}`}
+            onClick={() => setViewMode('simple')}
+            type="button"
+          >
+            간편 설정
+          </button>
+          <button
             className={`btn btn-sm ${viewMode === 'custom' ? 'btn-primary' : ''}`}
             onClick={() => setViewMode('custom')}
             type="button"
           >
-            나만의 전략
+            커스텀 빌더
           </button>
         </div>
 
@@ -439,6 +453,12 @@ export default function AutoTrader() {
         )}
 
         {viewMode === 'custom' && (
+          <>
+            {/* Replaced with StrategyBuilder */}
+          </>
+        )}
+
+        {viewMode === 'simple' && (
           <>
             <p className="color-fg-muted text-small text-center mb-3">필요한 입력만 펼쳐서 채우면 모바일에서도 손쉽게 설정할 수 있습니다.</p>
             <form onSubmit={handleAddStrategy} className="d-flex flex-column flex-items-center">
@@ -594,6 +614,15 @@ export default function AutoTrader() {
                 <button type="submit" className="btn btn-primary" style={{ minWidth: 180 }}>전략 추가</button>
               </div>
             </form>
+          </>
+        )}
+
+        {viewMode === 'custom' && (
+          <>
+            <p className="color-fg-muted text-small text-center mb-3">
+              지표와 조건을 조합하여 나만의 알고리즘을 만들어보세요.
+            </p>
+            <StrategyBuilder onSave={handleSaveCustomStrategy} initialMarket={market} />
           </>
         )}
 

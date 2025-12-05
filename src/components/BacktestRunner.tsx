@@ -14,6 +14,7 @@ export default function BacktestRunner({ strategy, market }: BacktestRunnerProps
     const [loading, setLoading] = useState(false);
     const [result, setResult] = useState<any>(null);
     const chartContainerRef = React.useRef<HTMLDivElement>(null);
+    const chartRef = React.useRef<any>(null);
 
     const runBacktest = async () => {
         if (!market || !strategy.strategyType) {
@@ -31,7 +32,7 @@ export default function BacktestRunner({ strategy, market }: BacktestRunnerProps
                 body: JSON.stringify({
                     strategy,
                     market,
-                    interval: 'minutes/60', // Default to hourly for backtest
+                    interval: 'minute60', // Default to hourly for backtest
                     count: 200, // Test on last 200 hours
                 }),
             });
@@ -41,6 +42,9 @@ export default function BacktestRunner({ strategy, market }: BacktestRunnerProps
             }
 
             const data = await response.json();
+            if (!data || !data.history) {
+                throw new Error('Invalid backtest data received');
+            }
             setResult(data);
             toast.success('백테스팅 완료!');
         } catch (error) {
@@ -53,32 +57,61 @@ export default function BacktestRunner({ strategy, market }: BacktestRunnerProps
 
     // Render chart when result is available
     React.useEffect(() => {
-        if (result && chartContainerRef.current) {
-            const chart = createChart(chartContainerRef.current, {
-                layout: {
-                    background: { type: ColorType.Solid, color: 'transparent' },
-                    textColor: '#333',
-                },
-                width: chartContainerRef.current.clientWidth,
-                height: 300,
-                grid: {
-                    vertLines: { visible: false },
-                    horzLines: { color: '#f0f3fa' },
-                },
-            });
+        if (!result || !result.history || !chartContainerRef.current) return;
 
-            const lineSeries = chart.addSeries(LineSeries, { color: '#2962FF' });
+        // Cleanup previous chart
+        if (chartRef.current) {
+            chartRef.current.remove();
+            chartRef.current = null;
+        }
 
-            const data = result.history.map((h: any) => ({
-                time: new Date(h.time).getTime() / 1000,
-                value: h.value,
-            }));
+        const chart = createChart(chartContainerRef.current, {
+            layout: {
+                background: { type: ColorType.Solid, color: 'transparent' },
+                textColor: '#333',
+            },
+            width: chartContainerRef.current.clientWidth || 600, // Fallback width
+            height: 300,
+            grid: {
+                vertLines: { visible: false },
+                horzLines: { color: '#f0f3fa' },
+            },
+        });
+        chartRef.current = chart;
 
+        const lineSeries = chart.addSeries(LineSeries, { color: '#2962FF' });
+
+        const data = result.history.map((h: any) => ({
+            time: new Date(h.time).getTime() / 1000,
+            value: h.value,
+        }));
+
+        if (data.length > 0) {
             lineSeries.setData(data);
             chart.timeScale().fitContent();
-
-            return () => chart.remove();
         }
+
+        // Resize handler
+        const handleResize = () => {
+            if (chartContainerRef.current && chartRef.current) {
+                chartRef.current.applyOptions({ width: chartContainerRef.current.clientWidth });
+            }
+        };
+
+        window.addEventListener('resize', handleResize);
+
+        // Also use ResizeObserver for more robust resizing
+        const resizeObserver = new ResizeObserver(() => handleResize());
+        resizeObserver.observe(chartContainerRef.current);
+
+        return () => {
+            window.removeEventListener('resize', handleResize);
+            resizeObserver.disconnect();
+            if (chartRef.current) {
+                chartRef.current.remove();
+                chartRef.current = null;
+            }
+        };
     }, [result]);
 
     return (

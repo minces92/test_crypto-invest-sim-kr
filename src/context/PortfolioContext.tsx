@@ -3,7 +3,7 @@
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
 import { sendMessage } from '@/lib/telegram';
 import { useData } from './DataProviderContext';
-import { calculateSMA, calculateRSI, calculateBollingerBands } from '@/lib/utils';
+import { calculateSMA, calculateRSI, calculateBollingerBands, calculateEMA } from '@/lib/utils';
 
 // --- Interface 정의들 ---
 interface Asset {
@@ -70,7 +70,23 @@ interface MomentumConfig {
   threshold: number; // 모멘텀 임계값 (기본값: 5%)
 }
 
-export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig) & {
+export interface CustomCondition {
+  indicator: 'RSI' | 'SMA' | 'EMA' | 'Price';
+  period?: number;
+  operator: '>' | '<' | '>=' | '<=' | '==';
+  value: number;
+}
+
+interface CustomStrategyConfig {
+  strategyType: 'custom';
+  market: string;
+  buyConditions: CustomCondition[];
+  sellConditions: CustomCondition[];
+  buyAmountPct: number;
+  sellAmountPct: number;
+}
+
+export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig | CustomStrategyConfig) & {
   id: string;
   isActive: boolean;
   name?: string;
@@ -764,6 +780,75 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           }
         }
       } catch (error) { console.error('모멘텀 전략 실행 실패:', error); }
+    } else if (strategy.strategyType === 'custom') {
+      try {
+        // 1. Fetch necessary data (candles)
+        // Determine max period needed
+        const conditions = [...strategy.buyConditions, ...strategy.sellConditions];
+        const maxPeriod = Math.max(...conditions.map(c => c.period || 0), 14) + 5; // Buffer
+
+        const response = await fetch(`/api/candles?market=${strategy.market}&count=${maxPeriod}`);
+        const candles = await response.json();
+        if (candles.length < maxPeriod) return;
+
+        const reversedCandles = [...candles].reverse();
+        const currentPrice = ticker.trade_price;
+
+        // 2. Helper to evaluate a single condition
+        const evaluateCondition = (condition: CustomCondition): boolean => {
+          let currentValue = 0;
+
+          if (condition.indicator === 'Price') {
+            currentValue = currentPrice;
+          } else if (condition.indicator === 'RSI') {
+            const rsi = calculateRSI(reversedCandles, condition.period || 14);
+            currentValue = rsi[rsi.length - 1];
+          } else if (condition.indicator === 'SMA') {
+            const sma = calculateSMA(reversedCandles, condition.period || 20);
+            currentValue = sma[sma.length - 1];
+          } else if (condition.indicator === 'EMA') {
+            const ema = calculateEMA(reversedCandles, condition.period || 20);
+            currentValue = ema[ema.length - 1];
+          }
+
+          switch (condition.operator) {
+            case '>': return currentValue > condition.value;
+            case '<': return currentValue < condition.value;
+            case '>=': return currentValue >= condition.value;
+            case '<=': return currentValue <= condition.value;
+            case '==': return Math.abs(currentValue - condition.value) < 0.0001;
+            default: return false;
+          }
+        };
+
+        // 3. Evaluate Buy Conditions (ALL must be true)
+        const buySignal = strategy.buyConditions.length > 0 && strategy.buyConditions.every(evaluateCondition);
+
+        // 4. Evaluate Sell Conditions (ALL must be true)
+        const sellSignal = strategy.sellConditions.length > 0 && strategy.sellConditions.every(evaluateCondition);
+
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactionsRef.current);
+
+        if (buySignal) {
+          const buyAmountPct = strategy.buyAmountPct || 10; // Default 10%
+          const krwAmount = currentCash * (buyAmountPct / 100);
+
+          if (krwAmount > 5000) {
+            const amountToBuy = krwAmount / currentPrice;
+            console.log(`[${strategy.market}] 커스텀 전략 매수 신호! (${buyAmountPct}%)`);
+            buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id, strategy.strategyType, true);
+          }
+        } else if (sellSignal) {
+          const assetToSell = currentAssets.find(a => a.market === strategy.market);
+          if (assetToSell && assetToSell.quantity > 0) {
+            const sellAmountPct = strategy.sellAmountPct || 50; // Default 50%
+            const amountToSell = assetToSell.quantity * (sellAmountPct / 100);
+            console.log(`[${strategy.market}] 커스텀 전략 매도 신호! (${sellAmountPct}%)`);
+            sellAsset(strategy.market, currentPrice, amountToSell, strategy.id, strategy.strategyType, true);
+          }
+        }
+
+      } catch (error) { console.error('Custom 전략 실행 실패:', error); }
     }
   };
 
@@ -791,8 +876,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         intervalMilliseconds = intervalMap[savedStrategy.interval] || 24000;
       } else if (savedStrategy.strategyType === 'news') {
         intervalMilliseconds = 300000; // Check news every 5 minutes
-      } else if (savedStrategy.strategyType === 'volatility' || savedStrategy.strategyType === 'momentum') {
-        intervalMilliseconds = 60000; // Check every 1 minute for volatility and momentum
+      } else if (savedStrategy.strategyType === 'volatility' || savedStrategy.strategyType === 'momentum' || savedStrategy.strategyType === 'custom') {
+        intervalMilliseconds = 60000; // Check every 1 minute
       }
 
       executeStrategy(savedStrategy);

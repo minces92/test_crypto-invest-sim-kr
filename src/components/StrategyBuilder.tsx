@@ -24,6 +24,11 @@ export default function StrategyBuilder({ onSave, initialMarket = 'KRW-BTC' }: S
     const [isBuyOpen, setIsBuyOpen] = useState(true);
     const [isSellOpen, setIsSellOpen] = useState(true);
 
+    // Trailing Stop state
+    const [useTrailingStop, setUseTrailingStop] = useState(false);
+    const [tsActivation, setTsActivation] = useState(5);
+    const [tsDistance, setTsDistance] = useState(2);
+
     const handleAddCondition = (type: 'buy' | 'sell') => {
         const newCondition: CustomCondition = { indicator: 'RSI', operator: '<', value: 50, period: 14 };
         if (type === 'buy') {
@@ -63,7 +68,12 @@ export default function StrategyBuilder({ onSave, initialMarket = 'KRW-BTC' }: S
             buyConditions,
             sellConditions,
             buyAmountPct,
-            sellAmountPct
+            sellAmountPct,
+            trailingStop: useTrailingStop ? {
+                isActive: true,
+                activationPct: tsActivation,
+                distancePct: tsDistance
+            } : undefined
         });
     };
 
@@ -220,6 +230,47 @@ export default function StrategyBuilder({ onSave, initialMarket = 'KRW-BTC' }: S
                         )}
                     </div>
                 </div>
+            </div>
+
+            {/* Trailing Stop Section */}
+            <div className="Box p-3 mb-3 color-bg-default border">
+                <div className="d-flex flex-items-center mb-2">
+                    <input
+                        type="checkbox"
+                        id="trailingStop"
+                        className="mr-2"
+                        checked={useTrailingStop}
+                        onChange={(e) => setUseTrailingStop(e.target.checked)}
+                    />
+                    <label htmlFor="trailingStop" className="text-bold cursor-pointer">트레일링 스탑 (Trailing Stop) 활성화</label>
+                </div>
+
+                {useTrailingStop && (
+                    <div className="d-flex flex-wrap gutter-md mt-2 pl-4">
+                        <div className="col-12 col-md-6 mb-2">
+                            <label className="text-small d-block mb-1">감시 시작 수익률 (%)</label>
+                            <input
+                                type="number"
+                                className="form-control input-sm width-full"
+                                placeholder="예: 5"
+                                value={tsActivation}
+                                onChange={(e) => setTsActivation(parseFloat(e.target.value))}
+                            />
+                            <p className="note text-small">수익률이 이 값에 도달하면 추적을 시작합니다.</p>
+                        </div>
+                        <div className="col-12 col-md-6 mb-2">
+                            <label className="text-small d-block mb-1">하락 감지 비율 (%)</label>
+                            <input
+                                type="number"
+                                className="form-control input-sm width-full"
+                                placeholder="예: 2"
+                                value={tsDistance}
+                                onChange={(e) => setTsDistance(parseFloat(e.target.value))}
+                            />
+                            <p className="note text-small">고점 대비 이만큼 하락하면 매도합니다.</p>
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className="text-center mt-3">

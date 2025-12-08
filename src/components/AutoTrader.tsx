@@ -1,6 +1,7 @@
 'use client';
 
 import { usePortfolio, Strategy } from '@/context/PortfolioContext';
+import { useData } from '@/context/DataProviderContext';
 import toast from 'react-hot-toast';
 import { ReactNode, useMemo, useState, useEffect } from 'react';
 import { recommendedStrategies } from '@/lib/recommended-strategies';
@@ -28,12 +29,16 @@ function CollapsibleSection({ title, children, defaultOpen = true }: { title: st
 }
 
 export default function AutoTrader() {
-  const { strategies, startStrategy, stopStrategy } = usePortfolio();
+  const { strategies, startStrategy, stopStrategy, assets, sellAsset, circuitBreaker, setCircuitBreakerConfig } = usePortfolio();
+  const { tickers } = useData();
   const [strategyType, setStrategyType] = useState('dca');
   const [viewMode, setViewMode] = useState<ViewMode>('recommended');
   const [showBacktest, setShowBacktest] = useState(false);
 
-  // Form state
+  // Trailing Stop State
+  const [highPrices, setHighPrices] = useState<{ [market: string]: number }>({});
+
+  // ... (existing form state)
   const [market, setMarket] = useState('KRW-BTC');
   const [dcaAmount, setDcaAmount] = useState('10000');
   const [dcaInterval, setDcaInterval] = useState('daily');
@@ -48,6 +53,10 @@ export default function AutoTrader() {
   const [volatilityMultiplier, setVolatilityMultiplier] = useState('0.5');
   const [momentumPeriod, setMomentumPeriod] = useState('10');
   const [momentumThreshold, setMomentumThreshold] = useState('5');
+  const [gridMinPrice, setGridMinPrice] = useState('50000');
+  const [gridMaxPrice, setGridMaxPrice] = useState('60000');
+  const [gridLines, setGridLines] = useState('5');
+  const [gridAmount, setGridAmount] = useState('10000');
 
   // AI Strategy State
   const [selectedStrategy, setSelectedStrategy] = useState<string>('dca');
@@ -68,11 +77,69 @@ export default function AutoTrader() {
     }
   }, [selectedStrategy]);
 
+  // Trailing Stop Logic
+  useEffect(() => {
+    if (!tickers || tickers.length === 0) return;
+
+    strategies.forEach(strategy => {
+      if (strategy.isActive && strategy.trailingStop && strategy.trailingStop.isActive) {
+        const ticker = tickers.find(t => t.market === strategy.market);
+        const asset = assets.find(a => a.market === strategy.market);
+
+        if (ticker && asset && asset.quantity > 0) {
+          const currentPrice = ticker.trade_price;
+          const avgBuyPrice = asset.avg_buy_price;
+          const currentProfitPct = ((currentPrice - avgBuyPrice) / avgBuyPrice) * 100;
+
+          // 1. Check activation
+          if (currentProfitPct >= strategy.trailingStop.activationPct) {
+            const currentHigh = highPrices[strategy.market] || 0;
+
+            // Update High Water Mark
+            if (currentPrice > currentHigh) {
+              setHighPrices(prev => ({ ...prev, [strategy.market]: currentPrice }));
+            }
+
+            // 2. Check Trailing Stop Condition
+            // Only check if we have a valid high price established after activation
+            if (currentHigh > 0) {
+              const dropFromHighPct = ((currentHigh - currentPrice) / currentHigh) * 100;
+
+              if (dropFromHighPct >= strategy.trailingStop.distancePct) {
+                console.log(`[${strategy.market}] 트레일링 스탑 발동! 고점(${currentHigh}) 대비 ${dropFromHighPct.toFixed(2)}% 하락. 매도 실행.`);
+
+                sellAsset(
+                  strategy.market,
+                  currentPrice,
+                  asset.quantity,
+                  strategy.id,
+                  'trailing_stop',
+                  true
+                );
+
+                // Reset high price after sell
+                setHighPrices(prev => {
+                  const newState = { ...prev };
+                  delete newState[strategy.market];
+                  return newState;
+                });
+
+                toast.success(`${strategy.market} 트레일링 스탑 매도 완료!`);
+              }
+            }
+          }
+        }
+      }
+    });
+  }, [tickers, strategies, assets, highPrices, sellAsset]);
+
   const availableMarkets = [
     'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA',
     'KRW-AVAX', 'KRW-DOT', 'KRW-MATIC', 'KRW-TRX', 'KRW-SHIB', 'KRW-ETC',
     'KRW-BCH', 'KRW-LINK'
   ];
+
+  // ... (rest of the component)
 
   const strategySummary = useMemo(() => {
     switch (strategyType) {
@@ -90,10 +157,12 @@ export default function AutoTrader() {
         return `${market.replace('KRW-', '')} | 승수 ${volatilityMultiplier}`;
       case 'momentum':
         return `${market.replace('KRW-', '')} | 기간 ${momentumPeriod} | 임계값 ${momentumThreshold}%`;
+      case 'grid':
+        return `${market.replace('KRW-', '')} | ${Number(gridMinPrice).toLocaleString()}~${Number(gridMaxPrice).toLocaleString()} | ${gridLines}개`;
       default:
         return '';
     }
-  }, [strategyType, market, dcaInterval, dcaAmount, maShortPeriod, maLongPeriod, rsiPeriod, rsiBuyThreshold, rsiSellThreshold, bbandPeriod, bbandMultiplier, sentimentThreshold, volatilityMultiplier, momentumPeriod, momentumThreshold]);
+  }, [strategyType, market, dcaInterval, dcaAmount, maShortPeriod, maLongPeriod, rsiPeriod, rsiBuyThreshold, rsiSellThreshold, bbandPeriod, bbandMultiplier, sentimentThreshold, volatilityMultiplier, momentumPeriod, momentumThreshold, gridMinPrice, gridMaxPrice, gridLines]);
 
   const getStrategyConfig = () => {
     let strategyConfig: Omit<Strategy, 'id' | 'isActive'>;
@@ -151,6 +220,16 @@ export default function AutoTrader() {
           market,
           period: parseInt(momentumPeriod, 10),
           threshold: parseFloat(momentumThreshold),
+        } as any;
+        break;
+      case 'grid':
+        strategyConfig = {
+          strategyType: 'grid',
+          market,
+          minPrice: parseInt(gridMinPrice, 10),
+          maxPrice: parseInt(gridMaxPrice, 10),
+          gridLines: parseInt(gridLines, 10),
+          amountPerGrid: parseInt(gridAmount, 10),
         } as any;
         break;
       default:
@@ -399,6 +478,27 @@ export default function AutoTrader() {
           </div>
         </div>
       )}
+
+      {strategyType === 'grid' && (
+        <div className="row gutter-spacious">
+          <div className="form-group mb-3 col-6">
+            <div className="form-group-header"><label htmlFor="grid-min-price-input">최저 가격</label></div>
+            <div className="form-group-body"><input id="grid-min-price-input" type="number" className="form-control" value={gridMinPrice} onChange={e => setGridMinPrice(e.target.value)} /></div>
+          </div>
+          <div className="form-group mb-3 col-6">
+            <div className="form-group-header"><label htmlFor="grid-max-price-input">최고 가격</label></div>
+            <div className="form-group-body"><input id="grid-max-price-input" type="number" className="form-control" value={gridMaxPrice} onChange={e => setGridMaxPrice(e.target.value)} /></div>
+          </div>
+          <div className="form-group mb-3 col-6">
+            <div className="form-group-header"><label htmlFor="grid-lines-input">그리드 개수</label></div>
+            <div className="form-group-body"><input id="grid-lines-input" type="number" className="form-control" value={gridLines} onChange={e => setGridLines(e.target.value)} /></div>
+          </div>
+          <div className="form-group mb-3 col-6">
+            <div className="form-group-header"><label htmlFor="grid-amount-input">그리드 당 투자금</label></div>
+            <div className="form-group-body"><input id="grid-amount-input" type="number" className="form-control" value={gridAmount} onChange={e => setGridAmount(e.target.value)} /></div>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -590,6 +690,7 @@ export default function AutoTrader() {
                         <option value="news">뉴스 기반</option>
                         <option value="volatility">변동성 돌파</option>
                         <option value="momentum">모멘텀</option>
+                        <option value="grid">그리드 매매 (Grid)</option>
                       </select>
                     </div>
                   </div>
@@ -647,6 +748,64 @@ export default function AutoTrader() {
         )}
 
         <div className="Box mt-4">
+          <div className="Box-header d-flex flex-justify-between flex-items-center">
+            <h3 className="Box-title">🛡️ 리스크 관리 (서킷 브레이커)</h3>
+            {circuitBreaker.triggered && <span className="Label Label--danger">발동됨</span>}
+          </div>
+          <div className="Box-body">
+            <div className="d-flex flex-items-center mb-3">
+              <input
+                type="checkbox"
+                id="cb-active"
+                className="mr-2"
+                checked={circuitBreaker.isActive}
+                onChange={(e) => setCircuitBreakerConfig({ isActive: e.target.checked })}
+              />
+              <label htmlFor="cb-active" className="text-bold cursor-pointer">서킷 브레이커 활성화</label>
+            </div>
+
+            {circuitBreaker.isActive && (
+              <div className="form-group">
+                <div className="form-group-header">
+                  <label htmlFor="cb-threshold">손실 제한 (%)</label>
+                </div>
+                <div className="form-group-body d-flex flex-items-center">
+                  <input
+                    id="cb-threshold"
+                    type="number"
+                    className="form-control mr-2"
+                    style={{ maxWidth: '100px' }}
+                    value={circuitBreaker.threshold}
+                    onChange={(e) => setCircuitBreakerConfig({ threshold: parseFloat(e.target.value) })}
+                    disabled={circuitBreaker.triggered}
+                  />
+                  <span className="text-small color-fg-muted">
+                    총 자산이 초기 자본 대비 이 비율만큼 감소하면 모든 매수를 중단합니다.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            {circuitBreaker.triggered && (
+              <div className="flash flash-error mt-3">
+                <strong>서킷 브레이커가 발동되었습니다!</strong>
+                <p>
+                  설정된 손실 한도({circuitBreaker.threshold}%)를 초과하여 추가 매수가 차단되었습니다.
+                  <br />
+                  발동 시간: {new Date(circuitBreaker.triggeredAt!).toLocaleString()}
+                </p>
+                <button
+                  className="btn btn-sm btn-danger mt-2"
+                  onClick={() => setCircuitBreakerConfig({ triggered: false, triggeredAt: undefined })}
+                >
+                  해제 및 재시작
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className="Box mt-4">
           <div className="Box-header">
             <h3 className="Box-title">활성 전략 목록</h3>
           </div>
@@ -668,6 +827,7 @@ export default function AutoTrader() {
                       {s.strategyType === 'news' && `뉴스 기반 (${s.sentimentThreshold === 'positive' ? '긍정' : '부정'})`}
                       {s.strategyType === 'volatility' && `변동성 돌파 (승수: ${s.multiplier ?? 'N/A'})`}
                       {s.strategyType === 'momentum' && `모멘텀 (기간: ${s.period ?? 'N/A'}, 임계값: ${s.threshold ?? 'N/A'}%)`}
+                      {s.trailingStop?.isActive && ` | 🛡️ 트레일링 스탑 (발동: ${s.trailingStop.activationPct}%, 감지: ${s.trailingStop.distancePct}%)`}
                     </div>
                   </div>
                   <button className="btn btn-danger btn-sm" onClick={() => stopStrategy(s.id)}>중지</button>

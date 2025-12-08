@@ -279,7 +279,7 @@ export default function TransactionHistory() {
           />
         </div>
       </div>
-      <div className="Box-body" style={{ maxHeight: '400px', overflowY: 'auto' }}>
+      <div className="Box-body p-0 mt-1" style={{ maxHeight: '400px', overflowY: 'auto' }}>
         {filteredTransactions.length === 0 ? (
           <div className="text-center p-3">
             <p className="color-fg-muted">
@@ -294,17 +294,17 @@ export default function TransactionHistory() {
           </div>
         ) : (
           <table className="Table Table--small">
-            <thead className="color-bg-subtle">
+            <thead>
               <tr>
-                <th>시간</th>
-                <th>종류</th>
-                <th>종목</th>
-                <th>수량</th>
-                <th>가격</th>
-                <th>총액</th>
-                <th>구분</th>
-                <th>전략</th>
-                <th>AI 분석</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>시간</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>종류</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>종목</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>수량</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>가격</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>총액</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>구분</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>전략</th>
+                <th className="color-bg-subtle" style={{ position: 'sticky', top: -5, zIndex: 10 }}>AI 분석</th>
               </tr>
             </thead>
             <tbody>

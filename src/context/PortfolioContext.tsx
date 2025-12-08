@@ -70,6 +70,18 @@ interface MomentumConfig {
   threshold: number; // 모멘텀 임계값 (기본값: 5%)
 }
 
+interface GridConfig {
+  strategyType: 'grid';
+  market: string;
+  minPrice: number;
+  maxPrice: number;
+  gridLines: number;
+  amountPerGrid: number;
+  // Runtime state
+  positions?: { [price: number]: number }; // price -> quantity
+  lastPrice?: number;
+}
+
 export interface CustomCondition {
   indicator: 'RSI' | 'SMA' | 'EMA' | 'Price';
   period?: number;
@@ -86,11 +98,16 @@ interface CustomStrategyConfig {
   sellAmountPct: number;
 }
 
-export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig | CustomStrategyConfig) & {
+export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig | GridConfig | CustomStrategyConfig) & {
   id: string;
   isActive: boolean;
   name?: string;
   description?: string;
+  trailingStop?: {
+    isActive: boolean;
+    activationPct: number; // e.g., 5% profit to activate
+    distancePct: number; // e.g., 2% drop from high to sell
+  };
 };
 
 interface PortfolioContextType {
@@ -102,6 +119,15 @@ interface PortfolioContextType {
   sellAsset: (market: string, price: number, amount: number, source: string, strategyType: string, isAuto: boolean) => Promise<boolean>;
   startStrategy: (strategy: Omit<Strategy, 'id' | 'isActive'>) => void;
   stopStrategy: (strategyId: string) => void;
+  circuitBreaker: CircuitBreakerConfig;
+  setCircuitBreakerConfig: (config: Partial<CircuitBreakerConfig>) => void;
+}
+
+export interface CircuitBreakerConfig {
+  isActive: boolean;
+  threshold: number; // e.g., 5 for -5%
+  triggered: boolean;
+  triggeredAt?: string;
 }
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
@@ -111,6 +137,13 @@ const INITIAL_CASH = 1000000; // 기본 원금: 1,000,000 KRW
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
+  const [circuitBreaker, setCircuitBreaker] = useState<CircuitBreakerConfig>({
+    isActive: false,
+    threshold: 5,
+    triggered: false
+  });
+
+  const startOfDayValueRef = useRef<number>(INITIAL_CASH);
   const { tickers } = useData();
 
   const strategyIntervalsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
@@ -119,6 +152,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   // Fix: Use ref to access latest tickers inside setInterval closure
   const tickersRef = useRef(tickers);
   const transactionsRef = useRef(transactions);
+  const strategiesRef = useRef(strategies);
 
   useEffect(() => {
     tickersRef.current = tickers;
@@ -127,6 +161,14 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   useEffect(() => {
     transactionsRef.current = transactions;
   }, [transactions]);
+
+  useEffect(() => {
+    strategiesRef.current = strategies;
+  }, [strategies]);
+
+  const updateStrategy = (id: string, updates: Partial<Strategy>) => {
+    setStrategies(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+  };
 
   useEffect(() => {
     const fetchTransactions = async () => {
@@ -294,6 +336,12 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     // 최소 거래 금액 (5000원) 체크
     if (cost < 5000) {
       console.log(`[${market}] 매수 금액이 최소 거래 금액(5,000원)보다 작아 취소되었습니다.`);
+      return false;
+    }
+
+    // 서킷 브레이커 체크
+    if (circuitBreaker.triggered) {
+      console.warn('⛔ 서킷 브레이커가 발동되어 매수가 차단되었습니다.');
       return false;
     }
 
@@ -780,6 +828,58 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           }
         }
       } catch (error) { console.error('모멘텀 전략 실행 실패:', error); }
+    } else if (strategy.strategyType === 'grid') {
+      // Use latest state
+      const currentStrategy = strategiesRef.current.find(s => s.id === strategy.id);
+      if (!currentStrategy || currentStrategy.strategyType !== 'grid') return;
+
+      const { minPrice, maxPrice, gridLines, amountPerGrid } = currentStrategy;
+      const step = (maxPrice - minPrice) / gridLines;
+      const currentPrice = ticker.trade_price;
+
+      // Initialize state if first run
+      let positions = currentStrategy.positions || {};
+      let lastPrice = currentStrategy.lastPrice || currentPrice;
+      let updated = false;
+
+      // Check crossings
+      for (let i = 0; i <= gridLines; i++) {
+        const linePrice = minPrice + (step * i);
+
+        // Buy: Crossed Down (Last > Line >= Current)
+        if (lastPrice > linePrice && currentPrice <= linePrice) {
+          if (!positions[i]) {
+            const quantity = amountPerGrid / currentPrice;
+            const success = await buyAsset(strategy.market, currentPrice, quantity, strategy.id, 'grid', true);
+            if (success) {
+              positions = { ...positions, [i]: quantity };
+              updated = true;
+              console.log(`[Grid] #${i} 매수 체결: ${linePrice.toLocaleString()}원`);
+            }
+          }
+        }
+
+        // Sell: Crossed Up (Last < Line <= Current)
+        // Sell the position from the level below (i-1) when crossing line i upwards
+        if (lastPrice < linePrice && currentPrice >= linePrice) {
+          const sellIndex = i - 1;
+          if (positions[sellIndex]) {
+            const quantity = positions[sellIndex];
+            const success = await sellAsset(strategy.market, currentPrice, quantity, strategy.id, 'grid', true);
+            if (success) {
+              const newPositions = { ...positions };
+              delete newPositions[sellIndex];
+              positions = newPositions;
+              updated = true;
+              console.log(`[Grid] #${sellIndex} 매도 체결: ${linePrice.toLocaleString()}원 (매수가: ${(minPrice + step * sellIndex).toLocaleString()})`);
+            }
+          }
+        }
+      }
+
+      if (updated || currentStrategy.lastPrice !== currentPrice) {
+        updateStrategy(strategy.id, { positions, lastPrice: currentPrice });
+      }
     } else if (strategy.strategyType === 'custom') {
       try {
         // 1. Fetch necessary data (candles)
@@ -907,8 +1007,55 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   };
 
 
+  const setCircuitBreakerConfig = (config: Partial<CircuitBreakerConfig>) => {
+    setCircuitBreaker(prev => ({ ...prev, ...config }));
+  };
+
+  // Circuit Breaker Monitor
+  useEffect(() => {
+    if (!circuitBreaker.isActive || circuitBreaker.triggered || tickers.length === 0) return;
+
+    const { cash, assets } = getPortfolioState(transactions);
+    let currentTotalValue = cash;
+
+    assets.forEach(asset => {
+      const ticker = tickers.find(t => t.market === asset.market);
+      if (ticker) {
+        currentTotalValue += asset.quantity * ticker.trade_price;
+      } else {
+        currentTotalValue += asset.quantity * asset.avg_buy_price;
+      }
+    });
+
+    // Calculate loss percentage from Initial Cash
+    const lossPct = ((INITIAL_CASH - currentTotalValue) / INITIAL_CASH) * 100;
+
+    if (lossPct >= circuitBreaker.threshold) {
+      setCircuitBreaker(prev => ({
+        ...prev,
+        triggered: true,
+        triggeredAt: new Date().toISOString()
+      }));
+      console.warn(`⚠️ 서킷 브레이커 발동! 손실율: ${lossPct.toFixed(2)}%`);
+
+      // Optional: Send notification
+      sendMessage(`🚨 <b>서킷 브레이커 발동!</b>\n손실율이 ${lossPct.toFixed(2)}%에 도달하여 모든 매수 주문이 차단됩니다.`);
+    }
+  }, [tickers, transactions, circuitBreaker]);
+
   return (
-    <PortfolioContext.Provider value={{ cash, assets, transactions, strategies, buyAsset, sellAsset, startStrategy, stopStrategy }}>
+    <PortfolioContext.Provider value={{
+      cash,
+      assets,
+      transactions,
+      strategies,
+      buyAsset,
+      sellAsset,
+      startStrategy,
+      stopStrategy,
+      circuitBreaker,
+      setCircuitBreakerConfig
+    }}>
       {children}
     </PortfolioContext.Provider>
   );

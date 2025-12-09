@@ -14,8 +14,15 @@ const EnvSchema = z.object({
 export const DynamicSettingsSchema = z.object({
     newsRefreshInterval: z.coerce.number().min(1).default(15),
     tradingEnabled: z.coerce.boolean().default(false),
+    isAIAutoTradingEnabled: z.coerce.boolean().default(false),
     maxRiskPerTrade: z.coerce.number().min(0).max(100).default(5), // % of portfolio
     autoTradeInterval: z.coerce.number().min(10).default(60), // seconds
+    circuitBreaker: z.object({
+        isActive: z.boolean().default(false),
+        threshold: z.number().default(5),
+        triggered: z.boolean().default(false),
+        triggeredAt: z.string().optional(),
+    }).default({ isActive: false, threshold: 5, triggered: false }),
 });
 
 export type EnvConfig = z.infer<typeof EnvSchema>;

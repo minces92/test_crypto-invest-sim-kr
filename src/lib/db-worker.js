@@ -72,6 +72,19 @@ function initDatabase() {
       )
     `);
 
+    // Migration: Check if updated_at exists in settings
+    try {
+      const columns = db.pragma('table_info(settings)');
+      const hasUpdatedAt = columns.some(c => c.name === 'updated_at');
+      if (!hasUpdatedAt) {
+        console.log('[DB Worker] Migrating settings table: adding updated_at column');
+        db.exec('ALTER TABLE settings ADD COLUMN updated_at DATETIME');
+        db.exec("UPDATE settings SET updated_at = datetime('now') WHERE updated_at IS NULL");
+      }
+    } catch (e) {
+      console.error('[DB Worker] Settings migration failed:', e);
+    }
+
     // Portfolio Snapshots table
     db.exec(`
       CREATE TABLE IF NOT EXISTS portfolio_snapshots (

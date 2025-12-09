@@ -203,3 +203,13 @@ export async function POST(request: Request) {
     return handleApiError(error);
   }
 }
+
+export async function DELETE() {
+  try {
+    const { clearAllTransactions } = await import('@/lib/cache');
+    await clearAllTransactions();
+    return NextResponse.json({ success: true, message: 'All transactions cleared' });
+  } catch (error) {
+    return handleApiError(error);
+  }
+}

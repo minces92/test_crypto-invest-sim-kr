@@ -68,5 +68,15 @@ export const recommendedStrategies: any[] = [
     longPeriod: 15,
     name: 'BTC 초단기 이동평균',
     description: '초단기(5)·단기(15) 이동평균 크로스 기반 전략으로, 짧은 시간 프레임에서 추세변화를 포착합니다.',
+  },
+  {
+    strategyType: 'grid',
+    market: 'KRW-XRP',
+    minPrice: 2500,
+    maxPrice: 3500,
+    gridLines: 10,
+    amountPerGrid: 10000,
+    name: '리플(XRP) 그리드 매매',
+    description: '2500~3500원 사이에서 등락을 반복할 때 자동으로 매수/매도를 반복하여 수익을 창출합니다.',
   }
 ];

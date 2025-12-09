@@ -3,7 +3,7 @@
 import React, { createContext, useState, useContext, ReactNode, useRef, useEffect, useMemo } from 'react';
 import { sendMessage } from '@/lib/telegram';
 import { useData } from './DataProviderContext';
-import { calculateSMA, calculateRSI, calculateBollingerBands, calculateEMA } from '@/lib/utils';
+import { calculateSMA, calculateRSI, calculateBollingerBands, calculateEMA, calculateMACD } from '@/lib/utils';
 
 // --- Interface 정의들 ---
 interface Asset {
@@ -13,7 +13,7 @@ interface Asset {
 }
 interface Transaction {
   id: string;
-  type: 'buy' | 'sell';
+  type: 'buy' | 'sell' | 'deposit' | 'withdraw';
   market: string;
   price: number;
   amount: number;
@@ -82,8 +82,15 @@ interface GridConfig {
   lastPrice?: number;
 }
 
+interface AiAutoConfig {
+  strategyType: 'ai_autonomous';
+  market: string;
+  interval: string; // e.g., 'minute60'
+  confidenceThreshold: number; // 0.0 - 1.0
+}
+
 export interface CustomCondition {
-  indicator: 'RSI' | 'SMA' | 'EMA' | 'Price';
+  indicator: 'RSI' | 'SMA' | 'EMA' | 'Price' | 'MACD' | 'BollingerUpper' | 'BollingerLower' | 'Volume';
   period?: number;
   operator: '>' | '<' | '>=' | '<=' | '==';
   value: number;
@@ -98,7 +105,7 @@ interface CustomStrategyConfig {
   sellAmountPct: number;
 }
 
-export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig | GridConfig | CustomStrategyConfig) & {
+export type Strategy = (DcaConfig | MaConfig | RsiConfig | BBandConfig | NewsStrategyConfig | VolatilityBreakoutConfig | MomentumConfig | GridConfig | CustomStrategyConfig | AiAutoConfig) & {
   id: string;
   isActive: boolean;
   name?: string;
@@ -121,6 +128,8 @@ interface PortfolioContextType {
   stopStrategy: (strategyId: string) => void;
   circuitBreaker: CircuitBreakerConfig;
   setCircuitBreakerConfig: (config: Partial<CircuitBreakerConfig>) => void;
+  refreshTransactions: () => void;
+  settings: any; // Added settings property
 }
 
 export interface CircuitBreakerConfig {
@@ -132,7 +141,7 @@ export interface CircuitBreakerConfig {
 
 const PortfolioContext = createContext<PortfolioContextType | undefined>(undefined);
 
-const INITIAL_CASH = 1000000; // 기본 원금: 1,000,000 KRW
+const INITIAL_CASH = 100000; // 기본 원금: 100,000 KRW (테스트용)
 
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
@@ -142,6 +151,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     threshold: 5,
     triggered: false
   });
+  const [settings, setSettings] = useState<any>({}); // New state for all settings
 
   const startOfDayValueRef = useRef<number>(INITIAL_CASH);
   const { tickers } = useData();
@@ -166,66 +176,94 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
     strategiesRef.current = strategies;
   }, [strategies]);
 
-  const updateStrategy = (id: string, updates: Partial<Strategy>) => {
-    setStrategies(prev => prev.map(s => s.id === id ? { ...s, ...updates } : s));
+
+
+  const fetchTransactions = async () => {
+    try {
+      const response = await fetch('/api/transactions');
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        setTransactions(data);
+      } else {
+        console.error('Fetched transactions is not an array:', data);
+        setTransactions([]);
+      }
+    } catch (error) {
+      console.error('Error fetching transactions:', error);
+      setTransactions([]);
+    }
+  };
+
+  const refreshTransactions = () => {
+    fetchTransactions();
+  };
+
+  const fetchStrategies = async () => {
+    try {
+      const response = await fetch('/api/strategies');
+      const data = await response.json();
+
+      if (Array.isArray(data)) {
+        setStrategies(data);
+        data.forEach((s: Strategy) => {
+          if (s.isActive) {
+            let intervalMilliseconds = 30000;
+            if (s.strategyType === 'dca') {
+              intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[s.interval] || 24000;
+            } else if (s.strategyType === 'news') {
+              intervalMilliseconds = 300000;
+            } else if (s.strategyType === 'volatility' || s.strategyType === 'momentum') {
+              intervalMilliseconds = 60000;
+            } else if (s.strategyType === 'ai_autonomous') {
+              // Parse interval string to ms, default to 1 hour if unknown
+              const intervalMap: { [key: string]: number } = {
+                'minute1': 60000,
+                'minute3': 180000,
+                'minute5': 300000,
+                'minute10': 600000,
+                'minute15': 900000,
+                'minute30': 1800000,
+                'minute60': 3600000,
+                'minute240': 14400000,
+                'day': 86400000
+              };
+                              intervalMilliseconds = intervalMap[(s as AiAutoConfig).interval] || 3600000;            }
+            const intervalId = setInterval(() => executeStrategy(s), intervalMilliseconds);
+            strategyIntervalsRef.current[s.id] = intervalId;
+          }
+        });
+      } else {
+        console.warn('Fetched strategies data is not an array:', data);
+        setStrategies([]);
+      }
+    } catch (error) {
+      console.error('Error fetching strategies:', error);
+      setStrategies([]);
+    }
+  };
+
+  const fetchSettings = async () => {
+    try {
+      const response = await fetch('/api/settings');
+      if (response.ok) {
+        const fetchedSettings = await response.json();
+        setSettings(fetchedSettings); // Update the new settings state
+        if (fetchedSettings.circuitBreaker) {
+          setCircuitBreaker(fetchedSettings.circuitBreaker);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching settings:', error);
+    }
   };
 
   useEffect(() => {
-    const fetchTransactions = async () => {
-      try {
-        const response = await fetch('/api/transactions');
-        const data = await response.json();
-        if (Array.isArray(data)) {
-          setTransactions(data);
-        } else {
-          console.error('Fetched transactions is not an array:', data);
-          setTransactions([]);
-        }
-      } catch (error) {
-        console.error('Error fetching transactions:', error);
-        setTransactions([]);
-      }
-    };
-    const fetchStrategies = async () => {
-      try {
-        const response = await fetch('/api/strategies');
-        const data = await response.json();
-
-        if (Array.isArray(data)) {
-          setStrategies(data);
-          data.forEach((s: Strategy) => {
-            if (s.isActive) {
-              let intervalMilliseconds = 30000;
-              if (s.strategyType === 'dca') {
-                intervalMilliseconds = { daily: 24000, weekly: 60000, monthly: 300000 }[s.interval] || 24000;
-              } else if (s.strategyType === 'news') {
-                intervalMilliseconds = 300000;
-              } else if (s.strategyType === 'volatility' || s.strategyType === 'momentum') {
-                intervalMilliseconds = 60000;
-              }
-              const intervalId = setInterval(() => executeStrategy(s), intervalMilliseconds);
-              strategyIntervalsRef.current[s.id] = intervalId;
-            }
-          });
-        } else {
-          console.warn('Fetched strategies data is not an array:', data);
-          setStrategies([]);
-        }
-      } catch (error) {
-        console.error('Error fetching strategies:', error);
-        setStrategies([]);
-      }
-    };
-
     fetchTransactions();
     fetchStrategies();
+    fetchSettings();
 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const getPortfolioState = (currentTransactions: Transaction[]) => {
-    let calculatedCash = INITIAL_CASH;
-    const calculatedAssets: { [market: string]: Asset } = {};
 
     // Process transactions in reverse order (oldest first)
     for (let i = currentTransactions.length - 1; i >= 0; i--) {
@@ -248,11 +286,15 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
             avg_buy_price: tx.price,
           };
         }
-      } else { // sell
+      } else if (tx.type === 'sell') { // sell
         calculatedCash += tx.price * tx.amount;
         if (calculatedAssets[tx.market]) {
           calculatedAssets[tx.market].quantity -= tx.amount;
         }
+      } else if (tx.type === 'deposit') {
+        calculatedCash += tx.amount;
+      } else if (tx.type === 'withdraw') {
+        calculatedCash -= tx.amount;
       }
     }
 
@@ -265,7 +307,7 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const { assets, cash } = useMemo(() => getPortfolioState(transactions), [transactions]);
 
   const addTransaction = async (
-    type: 'buy' | 'sell',
+    type: 'buy' | 'sell' | 'deposit' | 'withdraw',
     market: string,
     price: number,
     amount: number,
@@ -371,6 +413,12 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
   // --- Strategy Execution ---
   const executeStrategy = async (strategy: Strategy) => {
+    // Check if AI autonomous trading is globally enabled if this is an AI strategy
+    if (strategy.strategyType === 'ai_autonomous' && !settings.isAIAutoTradingEnabled) {
+      console.log(`[${strategy.market}] AI 자율 매매 비활성화됨. 실행하지 않습니다.`);
+      return;
+    }
+
     const currentTickers = tickersRef.current;
     if (!strategy.isActive || currentTickers.length === 0) return;
 
@@ -909,6 +957,22 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
           } else if (condition.indicator === 'EMA') {
             const ema = calculateEMA(reversedCandles, condition.period || 20);
             currentValue = ema[ema.length - 1];
+          } else if (condition.indicator === 'MACD') {
+            const macd = calculateMACD(reversedCandles);
+            // MACD Line vs Signal Line comparison usually, but here we compare MACD Line value
+            // Or maybe histogram? Let's use MACD Line value for simplicity against a threshold
+            currentValue = macd.macdLine[macd.macdLine.length - 1];
+          } else if (condition.indicator === 'BollingerUpper') {
+            const bb = calculateBollingerBands(reversedCandles, condition.period || 20, 2);
+            currentValue = bb.upper[bb.upper.length - 1];
+          } else if (condition.indicator === 'BollingerLower') {
+            const bb = calculateBollingerBands(reversedCandles, condition.period || 20, 2);
+            currentValue = bb.lower[bb.lower.length - 1];
+          } else if (condition.indicator === 'Volume') {
+            // Volume is not in Candle interface used by utils, need to check if passed candles have volume
+            // The candles from /api/candles usually have candle_acc_trade_volume
+            const lastCandle = reversedCandles[reversedCandles.length - 1] as any;
+            currentValue = lastCandle.candle_acc_trade_volume || 0;
           }
 
           switch (condition.operator) {
@@ -949,6 +1013,61 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         }
 
       } catch (error) { console.error('Custom 전략 실행 실패:', error); }
+    } else if (strategy.strategyType === 'ai_autonomous') {
+      // Prevent re-entrancy
+      if (strategyRunningRef.current[strategy.id]) {
+        console.log(`[${strategy.market}] AI 자율 매매 - 이미 실행 중, 건너뛰기`);
+        return;
+      }
+      strategyRunningRef.current[strategy.id] = true;
+
+      try {
+        const aiAutoConfig = strategy as AiAutoConfig;
+        const currentPrice = ticker.trade_price;
+        const { cash: currentCash, assets: currentAssets } = getPortfolioState(transactionsRef.current);
+        const asset = currentAssets.find(a => a.market === strategy.market);
+
+        console.log(`[${strategy.market}] AI 자율 매매 - 분석 요청...`);
+        const aiResponse = await fetch('/api/ai/recommend-strategy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ market: strategy.market }),
+        });
+
+        if (!aiResponse.ok) {
+          throw new Error('AI 추천 전략을 가져오는 데 실패했습니다.');
+        }
+        const aiData = await aiResponse.json();
+
+        const recommendation = aiData.recommendation?.toLowerCase(); // 'buy', 'sell', 'hold'
+        const confidence = parseFloat(aiData.confidence); // 0.0 ~ 1.0
+
+        console.log(`[${strategy.market}] AI 추천: ${recommendation}, 신뢰도: ${confidence.toFixed(2)}`);
+
+        if (confidence >= aiAutoConfig.confidenceThreshold) {
+          if (recommendation === 'buy') {
+            const amountToBuy = currentCash * 0.1 / currentPrice; // 가용 현금의 10% 매수
+            if (amountToBuy * currentPrice >= 5000) {
+              await buyAsset(strategy.market, currentPrice, amountToBuy, strategy.id, strategy.strategyType, true);
+              console.log(`[${strategy.market}] AI 추천 매수 (${(amountToBuy * currentPrice).toFixed(0)}원)`);
+            } else {
+              console.log(`[${strategy.market}] AI 추천 매수 금액이 너무 적어 건너뜁니다.`);
+            }
+          } else if (recommendation === 'sell' && asset && asset.quantity > 0) {
+            const amountToSell = asset.quantity * 0.5; // 보유량의 50% 매도
+            await sellAsset(strategy.market, currentPrice, amountToSell, strategy.id, strategy.strategyType, true);
+            console.log(`[${strategy.market}] AI 추천 매도 (${amountToSell.toFixed(4)}개)`);
+          } else {
+            console.log(`[${strategy.market}] AI 추천 보류 또는 매도 조건 불충족.`);
+          }
+        } else {
+          console.log(`[${strategy.market}] AI 신뢰도 (${confidence.toFixed(2)})가 낮아 거래를 건너뜁니다.`);
+        }
+      } catch (error) {
+        console.error('AI 자율 매매 실행 실패:', error);
+      } finally {
+        strategyRunningRef.current[strategy.id] = false;
+      }
     }
   };
 
@@ -978,6 +1097,8 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         intervalMilliseconds = 300000; // Check news every 5 minutes
       } else if (savedStrategy.strategyType === 'volatility' || savedStrategy.strategyType === 'momentum' || savedStrategy.strategyType === 'custom') {
         intervalMilliseconds = 60000; // Check every 1 minute
+      } else if (savedStrategy.strategyType === 'grid') {
+        intervalMilliseconds = 20000; // Check every 20 seconds
       }
 
       executeStrategy(savedStrategy);
@@ -1007,9 +1128,20 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   };
 
 
-  const setCircuitBreakerConfig = (config: Partial<CircuitBreakerConfig>) => {
-    setCircuitBreaker(prev => ({ ...prev, ...config }));
+  const setCircuitBreakerConfig = async (config: Partial<CircuitBreakerConfig>) => {
+    setCircuitBreaker(prev => {
+      const newState = { ...prev, ...config };
+      // Save to server
+      fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ circuitBreaker: newState })
+      }).catch(err => console.error('Failed to save circuit breaker settings:', err));
+      return newState;
+    });
   };
+
+
 
   // Circuit Breaker Monitor
   useEffect(() => {
@@ -1054,7 +1186,9 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
       startStrategy,
       stopStrategy,
       circuitBreaker,
-      setCircuitBreakerConfig
+      setCircuitBreakerConfig,
+      refreshTransactions,
+      settings
     }}>
       {children}
     </PortfolioContext.Provider>

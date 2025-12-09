@@ -51,19 +51,30 @@ export default function TransactionHistory() {
       // 먼저 "분석중..." 표시
       setAnalysis(prev => ({ ...prev, [tx.id]: '분석중...' }));
 
-      // 비동기로 AI 분석 수행
-      (async () => {
-        try {
-          const asset = assets.find(a => a.market === tx.market);
-          const response = await fetch('/api/analyze-trade', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              transaction: tx,
-              marketPrice: asset ? asset.avg_buy_price : tx.price
-            }),
-          });
-
+                // 비동기로 AI 분석 수행
+                (async () => {
+                  // 유효성 검사 추가: transaction 객체가 유효한지 확인
+                  if (!tx || !tx.id || !tx.market || typeof tx.price !== 'number' || typeof tx.amount !== 'number') {
+                    console.error('Invalid transaction data for AI analysis:', tx);
+                    setAnalysis(prev => ({ ...prev, [tx.id]: '유효하지 않은 거래 정보' }));
+                    setAnalyzingIds(prev => {
+                      const newSet = new Set(prev);
+                      newSet.delete(tx.id);
+                      return newSet;
+                    });
+                    return; // 유효하지 않은 거래는 분석을 건너뜜
+                  }
+      
+                  try {
+                    const asset = assets.find(a => a.market === tx.market);
+                    const response = await fetch('/api/analyze-trade', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        transaction: tx,
+                        marketPrice: asset ? asset.avg_buy_price : tx.price
+                      }),
+                    });
           if (!response.ok) {
             const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
             throw new Error(errorData.error || `HTTP ${response.status}`);
@@ -113,6 +124,18 @@ export default function TransactionHistory() {
   // 수동으로 다시 분석하는 함수
   const handleReanalyze = async (tx: any) => {
     if (!tx || !tx.id) return;
+
+    // 유효성 검사 추가: transaction 객체가 유효한지 확인
+    if (!tx.market || typeof tx.price !== 'number' || typeof tx.amount !== 'number') {
+      console.error('Invalid transaction data for AI analysis (reanalyze):', tx);
+      setAnalysis(prev => ({ ...prev, [tx.id]: '유효하지 않은 거래 정보' }));
+      setAnalyzingIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(tx.id);
+        return newSet;
+      });
+      return; // 유효하지 않은 거래는 분석을 건너뜜
+    }
 
     // 분석 상태 초기화 (DB 캐시도 무시)
     loadedFromDbRef.current.delete(tx.id);
@@ -170,7 +193,7 @@ export default function TransactionHistory() {
   };
 
 
-  const [filterType, setFilterType] = useState<'all' | 'buy' | 'sell'>('all');
+  const [filterType, setFilterType] = useState<'all' | 'buy' | 'sell' | 'deposit' | 'withdraw'>('all');
   const [filterMarket, setFilterMarket] = useState<string>('');
   const [filterSource, setFilterSource] = useState<'all' | 'manual' | 'auto'>('all');
   const [startDate, setStartDate] = useState<string>('');
@@ -221,11 +244,13 @@ export default function TransactionHistory() {
             <select
               className="form-select input-sm"
               value={filterType}
-              onChange={(e) => setFilterType(e.target.value as 'all' | 'buy' | 'sell')}
+              onChange={(e) => setFilterType(e.target.value as 'all' | 'buy' | 'sell' | 'deposit' | 'withdraw')}
             >
               <option value="all">모든 거래</option>
               <option value="buy">매수</option>
               <option value="sell">매도</option>
+              <option value="deposit">입금</option>
+              <option value="withdraw">출금</option>
             </select>
             <select
               className="form-select input-sm"
@@ -312,8 +337,14 @@ export default function TransactionHistory() {
                 tx && tx.market && (
                   <tr key={tx.id}>
                     <td>{new Date(tx.timestamp).toLocaleString('ko-KR', { hour12: false })}</td>
-                    <td className={tx.type === 'buy' ? 'color-fg-danger' : 'color-fg-accent'}>
-                      {tx.type === 'buy' ? '매수' : '매도'}
+                    <td className={
+                      tx.type === 'buy' ? 'color-fg-danger' :
+                        tx.type === 'sell' ? 'color-fg-accent' :
+                          tx.type === 'deposit' ? 'color-fg-success' : 'color-fg-attention'
+                    }>
+                      {tx.type === 'buy' ? '매수' :
+                        tx.type === 'sell' ? '매도' :
+                          tx.type === 'deposit' ? '입금' : '출금'}
                     </td>
                     <td>{tx.market.replace('KRW-', '')}</td>
                     <td>{tx.amount.toFixed(4)}</td>

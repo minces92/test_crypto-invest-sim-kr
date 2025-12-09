@@ -29,11 +29,53 @@ function CollapsibleSection({ title, children, defaultOpen = true }: { title: st
 }
 
 export default function AutoTrader() {
-  const { strategies, startStrategy, stopStrategy, assets, sellAsset, circuitBreaker, setCircuitBreakerConfig } = usePortfolio();
+  const { strategies, startStrategy, stopStrategy, assets, sellAsset, circuitBreaker, setCircuitBreakerConfig, refreshTransactions } = usePortfolio();
   const { tickers } = useData();
   const [strategyType, setStrategyType] = useState('dca');
   const [viewMode, setViewMode] = useState<ViewMode>('recommended');
   const [showBacktest, setShowBacktest] = useState(false);
+  const [settings, setSettings] = useState<any>({});
+
+  useEffect(() => {
+    const fetchSettings = async () => {
+      try {
+        const response = await fetch('/api/settings');
+        if (response.ok) {
+          const data = await response.json();
+          setSettings(data);
+        } else {
+          toast.error('설정을 불러오는 데 실패했습니다.');
+        }
+      } catch (error) {
+        console.error(error);
+        toast.error('설정을 불러오는 데 실패했습니다.');
+      }
+    };
+    fetchSettings();
+  }, []);
+
+  const handleSettingChange = async (key: string, value: any) => {
+    const oldSettings = { ...settings };
+    const newSettings = { ...settings, [key]: value };
+    setSettings(newSettings);
+
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      });
+      if (!response.ok) {
+        throw new Error('Failed to update settings');
+      }
+      toast.success('설정이 업데이트되었습니다.');
+    } catch (error) {
+      console.error(error);
+      toast.error('설정 업데이트에 실패했습니다.');
+      // Revert UI on failure
+      setSettings(oldSettings);
+    }
+  };
 
   // Trailing Stop State
   const [highPrices, setHighPrices] = useState<{ [market: string]: number }>({});
@@ -58,6 +100,10 @@ export default function AutoTrader() {
   const [gridLines, setGridLines] = useState('5');
   const [gridAmount, setGridAmount] = useState('10000');
 
+  // AI Autonomous State
+  const [aiInterval, setAiInterval] = useState('minute60');
+  const [aiConfidence, setAiConfidence] = useState('0.7');
+
   // AI Strategy State
   const [selectedStrategy, setSelectedStrategy] = useState<string>('dca');
   const [config, setConfig] = useState<any>({});
@@ -69,6 +115,10 @@ export default function AutoTrader() {
   const [multiCoinResults, setMultiCoinResults] = useState<any[]>([]);
   const [selectedMultiMarkets, setSelectedMultiMarkets] = useState<string[]>([]);
   const [processingMarket, setProcessingMarket] = useState<string | null>(null);
+
+  // Batch Backtest State
+  const [batchBacktestLoading, setBatchBacktestLoading] = useState(false);
+  const [batchBacktestResults, setBatchBacktestResults] = useState<any[]>([]);
 
   useEffect(() => {
     const strategy = recommendedStrategies.find(s => s.id === selectedStrategy);
@@ -159,10 +209,12 @@ export default function AutoTrader() {
         return `${market.replace('KRW-', '')} | 기간 ${momentumPeriod} | 임계값 ${momentumThreshold}%`;
       case 'grid':
         return `${market.replace('KRW-', '')} | ${Number(gridMinPrice).toLocaleString()}~${Number(gridMaxPrice).toLocaleString()} | ${gridLines}개`;
+      case 'ai_autonomous':
+        return `${market.replace('KRW-', '')} | AI 자율 매매 | 신뢰도 ${aiConfidence}+`;
       default:
         return '';
     }
-  }, [strategyType, market, dcaInterval, dcaAmount, maShortPeriod, maLongPeriod, rsiPeriod, rsiBuyThreshold, rsiSellThreshold, bbandPeriod, bbandMultiplier, sentimentThreshold, volatilityMultiplier, momentumPeriod, momentumThreshold, gridMinPrice, gridMaxPrice, gridLines]);
+  }, [strategyType, market, dcaInterval, dcaAmount, maShortPeriod, maLongPeriod, rsiPeriod, rsiBuyThreshold, rsiSellThreshold, bbandPeriod, bbandMultiplier, sentimentThreshold, volatilityMultiplier, momentumPeriod, momentumThreshold, gridMinPrice, gridMaxPrice, gridLines, aiInterval, aiConfidence]);
 
   const getStrategyConfig = () => {
     let strategyConfig: Omit<Strategy, 'id' | 'isActive'>;
@@ -232,10 +284,46 @@ export default function AutoTrader() {
           amountPerGrid: parseInt(gridAmount, 10),
         } as any;
         break;
+      case 'ai_autonomous':
+        strategyConfig = {
+          strategyType: 'ai_autonomous',
+          market,
+          interval: aiInterval,
+          confidenceThreshold: parseFloat(aiConfidence),
+        } as any;
+        break;
       default:
         return null;
     }
     return strategyConfig;
+  };
+
+  const [isSyncingUpbit, setIsSyncingUpbit] = useState(false);
+
+  // ... other state declarations
+
+  const handleSyncUpbitWallet = async () => {
+    setIsSyncingUpbit(true);
+    try {
+      const response = await fetch('/api/portfolio/sync-upbit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to sync Upbit wallet');
+      }
+
+      const data = await response.json();
+      toast.success(data.message || '업비트 지갑 동기화 완료!');
+      refreshTransactions(); // Refresh portfolio data
+    } catch (error) {
+      console.error('Error syncing Upbit wallet:', error);
+      toast.error(`업비트 지갑 동기화 실패: ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      setIsSyncingUpbit(false);
+    }
   };
 
   const handleAddStrategy = (e?: React.FormEvent) => {
@@ -379,6 +467,52 @@ export default function AutoTrader() {
     setViewMode('recommended'); // Go back to main view or stay? Maybe stay to allow creating more.
   };
 
+  const runBatchBacktest = async () => {
+    const activeStrategies = strategies.filter(s => s.isActive);
+    if (activeStrategies.length === 0) {
+      toast.error('활성화된 전략이 없습니다.');
+      return;
+    }
+
+    setBatchBacktestLoading(true);
+    setBatchBacktestResults([]);
+
+    const results = [];
+
+    for (const strategy of activeStrategies) {
+      try {
+        const response = await fetch('/api/backtest', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            strategy,
+            market: strategy.market,
+            interval: 'minute60',
+            count: 168, // 1 week
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          results.push({
+            id: strategy.id,
+            strategyName: strategy.name || strategy.strategyType.toUpperCase(),
+            market: strategy.market,
+            totalReturn: data.totalReturn,
+            winRate: data.winRate,
+            tradeCount: data.tradeCount
+          });
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    setBatchBacktestResults(results);
+    setBatchBacktestLoading(false);
+    toast.success('전체 전략 백테스팅 완료');
+  };
+
   const renderCustomInputs = () => (
     <>
       {strategyType === 'news' && (
@@ -499,6 +633,44 @@ export default function AutoTrader() {
           </div>
         </div>
       )}
+
+      {strategyType === 'ai_autonomous' && (
+        <div className="row gutter-spacious">
+          <div className="form-group mb-3 col-6">
+            <div className="form-group-header"><label htmlFor="ai-interval-select">분석 주기</label></div>
+            <div className="form-group-body">
+              <select id="ai-interval-select" className="form-select" value={aiInterval} onChange={e => setAiInterval(e.target.value)}>
+                <option value="minute15">15분</option>
+                <option value="minute30">30분</option>
+                <option value="minute60">1시간</option>
+                <option value="minute240">4시간</option>
+                <option value="day">1일</option>
+              </select>
+            </div>
+          </div>
+          <div className="form-group mb-3 col-6">
+            <div className="form-group-header"><label htmlFor="ai-confidence-input">최소 신뢰도 (0.1 ~ 1.0)</label></div>
+            <div className="form-group-body">
+              <input
+                id="ai-confidence-input"
+                type="number"
+                className="form-control"
+                value={aiConfidence}
+                onChange={e => setAiConfidence(e.target.value)}
+                step="0.1"
+                min="0.1"
+                max="1.0"
+              />
+            </div>
+            <small className="color-fg-muted text-small">AI의 확신이 이 값 이상일 때만 거래합니다.</small>
+          </div>
+          <div className="col-12">
+            <div className="flash flash-warn">
+              <strong>주의:</strong> AI 자율 매매는 시장 상황에 따라 예측하지 못한 손실을 입을 수 있습니다. 소액으로 테스트 후 사용하세요.
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 
@@ -507,6 +679,45 @@ export default function AutoTrader() {
       <div className="Box-header text-center">
         <h2 className="Box-title">자동 매매</h2>
       </div>
+
+      <CollapsibleSection title="🤖 업비트 연동 AI 자동 투자" defaultOpen>
+        <div className="Box-body">
+          <p className="color-fg-muted text-small mb-3">
+            업비트 계좌의 자산을 기반으로 모의 투자를 시작합니다. AI가 자동으로 전체 포트폴리오를 분석하고 주기적으로 매수/매도 결정을 내립니다.
+            <br />
+            <strong>주의:</strong> 이 기능은 실제 업비트 계좌로 거래하지 않으며, 앱 내에서 가상으로만 진행됩니다.
+          </p>
+          <div className="form-group d-flex flex-justify-between flex-items-center">
+            <div className="form-group-header">
+              <label htmlFor="ai-autotrade-toggle">AI 자동 투자 활성화</label>
+            </div>
+            <div className="form-group-body">
+              <label className="form-switch">
+                <input
+                  type="checkbox"
+                  id="ai-autotrade-toggle"
+                  checked={settings.isAIAutoTradingEnabled || false}
+                  onChange={(e) => handleSettingChange('isAIAutoTradingEnabled', e.target.checked)}
+                />
+                <i className="form-switch-icon"></i>
+              </label>
+            </div>
+          </div>
+           <div className="d-flex flex-justify-between flex-items-center mt-2">
+              <span className="text-small">
+                현재 상태: {settings.isAIAutoTradingEnabled ? <span className="Label Label--success">활성화</span> : <span className="Label Label--secondary">비활성화</span>}
+              </span>
+              <button 
+                className="btn btn-sm" 
+                onClick={handleSyncUpbitWallet}
+                disabled={!settings.isAIAutoTradingEnabled || isSyncingUpbit}
+              >
+                {isSyncingUpbit ? '동기화 중...' : '업비트 지갑 동기화'}
+              </button>
+            </div>
+        </div>
+      </CollapsibleSection>
+
       <div className="Box-body">
         <div className="d-flex flex-justify-center mb-3" style={{ gap: '8px' }}>
           <button
@@ -691,6 +902,7 @@ export default function AutoTrader() {
                         <option value="volatility">변동성 돌파</option>
                         <option value="momentum">모멘텀</option>
                         <option value="grid">그리드 매매 (Grid)</option>
+                        <option value="ai_autonomous">AI 자율 매매 (Beta)</option>
                       </select>
                     </div>
                   </div>
@@ -746,6 +958,49 @@ export default function AutoTrader() {
             )}
           </div>
         )}
+
+        {/* Batch Backtest Section */}
+        <div className="Box mt-4">
+          <div className="Box-header d-flex flex-justify-between flex-items-center">
+            <h3 className="Box-title">전체 전략 백테스팅</h3>
+            <button
+              className="btn btn-sm"
+              onClick={runBatchBacktest}
+              disabled={batchBacktestLoading}
+            >
+              {batchBacktestLoading ? '분석 중...' : '모든 활성 전략 테스트 (1주)'}
+            </button>
+          </div>
+          {batchBacktestResults.length > 0 && (
+            <div className="Box-body">
+              <table className="width-full text-small">
+                <thead>
+                  <tr className="text-left">
+                    <th>전략/마켓</th>
+                    <th>수익률</th>
+                    <th>승률</th>
+                    <th>거래횟수</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {batchBacktestResults.map((res, i) => (
+                    <tr key={i} className="border-bottom">
+                      <td>
+                        <div className="text-bold">{res.market}</div>
+                        <div className="color-fg-muted">{res.strategyName}</div>
+                      </td>
+                      <td className={res.totalReturn >= 0 ? 'color-fg-success' : 'color-fg-danger'}>
+                        {res.totalReturn.toFixed(2)}%
+                      </td>
+                      <td>{res.winRate.toFixed(1)}%</td>
+                      <td>{res.tradeCount}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
 
         <div className="Box mt-4">
           <div className="Box-header d-flex flex-justify-between flex-items-center">

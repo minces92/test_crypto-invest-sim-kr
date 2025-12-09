@@ -793,6 +793,19 @@ export async function saveTransaction(transaction: {
   }
 }
 
+/**
+ * 모든 거래 내역을 삭제합니다.
+ */
+export async function clearAllTransactions(): Promise<void> {
+  try {
+    await workerRun('DELETE FROM transactions');
+    console.log('[cache] All transactions cleared.');
+  } catch (err) {
+    console.error('[cache] clearAllTransactions failed:', err);
+    throw err;
+  }
+}
+
 // --- Background job helpers ---
 export interface JobRecord {
   id: number;

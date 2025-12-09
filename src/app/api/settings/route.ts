@@ -43,7 +43,7 @@ export async function POST(request: Request) {
     if (updates.length > 0) {
       for (const [key, value] of updates) {
         await run(
-          'INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP',
+          'INSERT INTO settings (key, value, updated_at) VALUES (?, ?, CURRENT_TIMESTAMP) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP',
           [key, JSON.stringify(value)]
         );
       }

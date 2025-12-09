@@ -88,6 +88,10 @@ export default function StrategyBuilder({ onSave, initialMarket = 'KRW-BTC' }: S
                     <option value="RSI">RSI</option>
                     <option value="SMA">SMA (단순이평)</option>
                     <option value="EMA">EMA (지수이평)</option>
+                    <option value="MACD">MACD</option>
+                    <option value="BollingerUpper">볼린저 밴드 상단</option>
+                    <option value="BollingerLower">볼린저 밴드 하단</option>
+                    <option value="Volume">거래량</option>
                     <option value="Price">현재가</option>
                 </select>
             </div>

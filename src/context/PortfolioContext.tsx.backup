@@ -144,13 +144,6 @@ const PortfolioContext = createContext<PortfolioContextType | undefined>(undefin
 
 const INITIAL_CASH = 100000; // 기본 원금: 100,000 KRW (테스트용)
 
-interface TrailingStopState {
-  [market: string]: {
-    peakPrice: number;
-    isActivated: boolean;
-  };
-}
-
 export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [strategies, setStrategies] = useState<Strategy[]>([]);
@@ -163,8 +156,6 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
   const startOfDayValueRef = useRef<number>(INITIAL_CASH);
   const { tickers } = useData();
-  
-  const trailingStopStateRef = useRef<TrailingStopState>({});
 
   const strategyIntervalsRef = useRef<{ [key: string]: NodeJS.Timeout }>({});
   // prevent overlapping executions per strategy
@@ -375,10 +366,6 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
         setTransactions(prevTransactions => prevTransactions.filter(tx => tx.id !== newTransaction.id));
         return false;
       }
-      // If a sell happens, reset the trailing stop state for that market
-      if (type === 'sell') {
-        delete trailingStopStateRef.current[market];
-      }
       return true;
     } catch (error) {
       console.error('Error saving transaction, reverting optimistic update:', error);
@@ -434,75 +421,6 @@ export const PortfolioProvider = ({ children }: { children: ReactNode }) => {
 
     return await addTransaction('sell', market, price, sellAmount, source, strategyType, isAuto);
   };
-
-  // --- Trailing Stop Logic ---
-  useEffect(() => {
-    const trailingStopInterval = setInterval(() => {
-      const currentAssets = getPortfolioState(transactionsRef.current).assets;
-      const currentTickers = tickersRef.current;
-      const currentStrategies = strategiesRef.current;
-
-      if (currentAssets.length === 0 || currentTickers.length === 0 || currentStrategies.length === 0) {
-        return;
-      }
-      
-      currentAssets.forEach(asset => {
-        const ticker = currentTickers.find(t => t.market === asset.market);
-        if (!ticker) return;
-
-        // Find the last automated buy transaction for this asset to link to a strategy
-        const lastAutoBuyTx = transactionsRef.current.find(
-          tx => tx.market === asset.market && tx.type === 'buy' && tx.isAuto
-        );
-        if (!lastAutoBuyTx) return;
-
-        const strategy = currentStrategies.find(s => s.id === lastAutoBuyTx.source);
-        if (!strategy || !strategy.trailingStop?.isActive) {
-          return;
-        }
-        
-        const { activationPct, distancePct } = strategy.trailingStop;
-        const currentPrice = ticker.trade_price;
-        const profitPct = ((currentPrice - asset.avg_buy_price) / asset.avg_buy_price) * 100;
-
-        let state = trailingStopStateRef.current[asset.market];
-
-        // 1. Activation Check
-        if (!state) {
-            if (profitPct >= activationPct) {
-                console.log(`[${asset.market}] Trailing Stop ACTIVATED at ${profitPct.toFixed(2)}% profit.`);
-                trailingStopStateRef.current[asset.market] = {
-                    isActivated: true,
-                    peakPrice: currentPrice,
-                };
-                state = trailingStopStateRef.current[asset.market];
-            } else {
-                return; // Not activated yet
-            }
-        }
-        
-        if (!state.isActivated) return;
-
-        // 2. Peak Price Update
-        if (currentPrice > state.peakPrice) {
-            trailingStopStateRef.current[asset.market].peakPrice = currentPrice;
-            // console.log(`[${asset.market}] Trailing Stop new peak: ${currentPrice}`);
-            state = trailingStopStateRef.current[asset.market];
-        }
-
-        // 3. Sell Condition Check
-        const dropPct = ((state.peakPrice - currentPrice) / state.peakPrice) * 100;
-        if (dropPct >= distancePct) {
-            console.log(`[${asset.market}] Trailing Stop TRIGGERED! Selling asset. Peak: ${state.peakPrice}, Current: ${currentPrice}, Drop: ${dropPct.toFixed(2)}%`);
-            sellAsset(asset.market, currentPrice, asset.quantity, `trailing_stop_${strategy.id}`, strategy.strategyType, true);
-            // The state for this market will be deleted in addTransaction after the sell is confirmed
-        }
-      });
-    }, 15000); // Run every 15 seconds
-
-    return () => clearInterval(trailingStopInterval);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
 
   // --- Strategy Execution ---
   const executeStrategy = async (strategy: Strategy) => {

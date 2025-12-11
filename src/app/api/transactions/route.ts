@@ -1,61 +1,63 @@
 import { NextResponse } from 'next/server';
 import { getTransactions, saveTransaction, createJob } from '@/lib/cache';
-import { handleApiError } from '@/lib/error-handler';
-import { measureExecutionTime } from '@/lib/monitoring';
 
 export async function GET() {
   try {
-    const transactions = await getTransactions();
+  const transactions = await getTransactions();
     return NextResponse.json(transactions);
   } catch (error) {
-    return handleApiError(error);
+    console.error('Error reading transactions:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: 'Failed to read transactions', details: errorMessage },
+      { status: 500 }
+    );
   }
 }
-
-import { z } from 'zod';
-
-const transactionSchema = z.object({
-  id: z.string(),
-  type: z.enum(['buy', 'sell']),
-  market: z.string().regex(/^KRW-[A-Z]+$/),
-  price: z.number().positive(),
-  amount: z.number().positive(),
-  timestamp: z.string().or(z.number()), // Allow string or number timestamp
-  source: z.string().optional(),
-  isAuto: z.boolean().optional(),
-  strategyType: z.string().optional(),
-});
 
 export async function POST(request: Request) {
   try {
     // 요청 본문 읽기
-    const body = await request.json();
-
-    // Zod 검증
-    const result = transactionSchema.safeParse(body);
-
-    if (!result.success) {
-      console.error('Validation error:', result.error.format());
-      return NextResponse.json({
-        error: 'Invalid transaction data',
-        details: result.error.issues.map(e => `${e.path.join('.')}: ${e.message}`).join(', ')
-      }, { status: 400 });
+    const body = await request.text();
+    
+    // 빈 본문 체크
+    if (!body || body.trim() === '') {
+      console.error('Empty request body');
+      return NextResponse.json({ error: 'Request body is empty' }, { status: 400 });
     }
 
-    const newTransaction = result.data;
+    // JSON 파싱 시도
+    let newTransaction;
+    try {
+      newTransaction = JSON.parse(body);
+    } catch (parseError) {
+      console.error('JSON parse error:', parseError);
+      console.error('Request body:', body);
+      return NextResponse.json({ error: 'Invalid JSON format' }, { status: 400 });
+    }
+
+    // 필수 필드 검증
+    if (!newTransaction || typeof newTransaction !== 'object') {
+      return NextResponse.json({ error: 'Invalid transaction data' }, { status: 400 });
+    }
+
+    if (!newTransaction.id || !newTransaction.type || !newTransaction.market || 
+        newTransaction.price == null || newTransaction.amount == null || !newTransaction.timestamp) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
 
     // DB에 저장
-    await measureExecutionTime('save_transaction', () => saveTransaction({
+  await saveTransaction({
       id: newTransaction.id,
       type: newTransaction.type,
       market: newTransaction.market,
       price: newTransaction.price,
       amount: newTransaction.amount,
-      timestamp: new Date(newTransaction.timestamp).toISOString(), // Ensure ISO string
+      timestamp: newTransaction.timestamp,
       source: newTransaction.source,
       isAuto: newTransaction.isAuto,
       strategyType: newTransaction.strategyType,
-    }));
+    });
 
     // Create a background job for analysis (non-blocking)
     (async () => {
@@ -72,14 +74,14 @@ export async function POST(request: Request) {
         const cache = await import('@/lib/cache');
         const telegram = await import('@/lib/telegram');
 
-        const siteUrl = 'http://221.138.212.182:3000';
+        const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
         const typeText = newTransaction.type === 'buy' ? '📈 매수' : '📉 매도';
         const marketName = newTransaction.market.replace('KRW-', '');
-        const totalCostNum = Number(newTransaction.price) * Number(newTransaction.amount);
-        const totalCost = totalCostNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
+  const totalCostNum = Number(newTransaction.price) * Number(newTransaction.amount);
+  const totalCost = totalCostNum.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
 
-        // Execution time in KST
-        const executedAt = new Date(newTransaction.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+  // Execution time in KST
+  const executedAt = new Date(newTransaction.timestamp).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 
         // 자동/수동 및 전략 정보
         const autoText = newTransaction.isAuto ? '자동' : (newTransaction.source === 'manual' ? '수동' : '자동');
@@ -134,7 +136,7 @@ export async function POST(request: Request) {
         let profitText = '';
         if (newTransaction.type === 'sell') {
           try {
-            const allTx = await cache.getTransactions();
+      const allTx = await cache.getTransactions();
             // compute average buy price from previous buy transactions for this market (excluding this sell)
             const buys = allTx.filter((t: any) => t.market === newTransaction.market && t.type === 'buy');
             let avgBuyPrice = 0;
@@ -155,31 +157,11 @@ export async function POST(request: Request) {
           }
         }
 
-        // Calculate current cash balance
-        const allTransactions = await cache.getTransactions();
-        let currentCash = 1000000; // Initial cash
-        for (const tx of allTransactions) {
-          const txCost = Number(tx.price) * Number(tx.amount);
-          if (tx.type === 'buy') {
-            currentCash -= txCost;
-          } else {
-            currentCash += txCost;
-          }
-        }
-        // Adjust for the current transaction if it's not already in the fetched list (it might be, depending on race conditions, but usually saveTransaction is awaited before this block. 
-        // Actually, saveTransaction is called before this block. So allTransactions SHOULD include the new one.
-        // However, getTransactions might be cached or slightly delayed? 
-        // Let's assume getTransactions returns the up-to-date list including the one we just saved.
-        // If not, we might need to manually adjust. But since we are inside the route handler and just saved it, let's trust getTransactions or re-calculate carefully.
-        // A safer way is to calculate from allTransactions.
-
-        const cashBalanceStr = currentCash.toLocaleString('ko-KR', { maximumFractionDigits: 0 });
-
-        const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}\n\n<b>💰 잔액:</b> ${cashBalanceStr} 원\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
+        const message = `\n<b>🔔 신규 거래 알림</b>\n-------------------------\n<b>종류:</b> ${typeText}\n<b>자동/수동:</b> ${autoText}\n<b>전략:</b> ${strategyText}\n<b>종목:</b> ${marketName}\n<b>체결시간(KST):</b> ${executedAt}\n<b>수량:</b> ${Number(newTransaction.amount).toFixed(6)}\n<b>단가:</b> ${Number(newTransaction.price).toLocaleString('ko-KR')} 원\n<b>총액:</b> ${totalCost} 원${profitText}\n-------------------------\n${analysisText ? `<b>평가:</b> ${analysisText}\n-------------------------\n` : ''}<a href="${siteUrl}">사이트에서 확인하기</a>`;
 
         const sent = await telegram.sendMessage(message, 'HTML');
 
-        await cache.logNotificationAttempt({
+  await cache.logNotificationAttempt({
           transactionId: newTransaction.id,
           sourceType: 'transaction',
           channel: 'telegram',
@@ -200,16 +182,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json(newTransaction, { status: 201 });
   } catch (error) {
-    return handleApiError(error);
-  }
-}
-
-export async function DELETE() {
-  try {
-    const { clearAllTransactions } = await import('@/lib/cache');
-    await clearAllTransactions();
-    return NextResponse.json({ success: true, message: 'All transactions cleared' });
-  } catch (error) {
-    return handleApiError(error);
+    console.error('Error writing transaction:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    return NextResponse.json(
+      { error: 'Failed to write transaction', details: errorMessage },
+      { status: 500 }
+    );
   }
 }

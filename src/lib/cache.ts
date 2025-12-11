@@ -654,17 +654,6 @@ export async function resendFailedNotifications(limit = 20) {
       if (r.transaction_id) {
         const tx = await queryGet('SELECT notification_sent FROM transactions WHERE id = ?', [r.transaction_id]) as { notification_sent?: number } | undefined;
         if (tx && tx.notification_sent === 1) {
-          // Insert a success log to record that we skipped because transaction already notified
-          await logNotificationAttempt({
-            transactionId: r.transaction_id,
-            sourceType: r.source_type,
-            channel: r.channel,
-            payload: r.payload,
-            attemptNumber: 1,
-            success: true,
-            responseCode: 200,
-            responseBody: 'skipped_already_notified',
-          });
           continue;
         }
       }
@@ -881,21 +870,7 @@ export async function updateJobStatus(jobId: number, status: string, meta: any =
   }
 }
 
-/**
- * 거래 내역을 삭제합니다.
- * @param transactionId - 거래 ID (선택적, 없으면 전체 삭제)
- */
-export async function deleteTransaction(transactionId?: string): Promise<void> {
-  try {
-    if (transactionId) {
-      await workerRun('DELETE FROM transactions WHERE id = ?', [transactionId]);
-    } else {
-      await workerRun('DELETE FROM transactions');
-    }
-  } catch (err) {
-    console.error('[cache] deleteTransaction failed:', err);
-  }
-}
+
 
 /**
  * 데이터베이스 초기화 (모든 테이블 삭제 후 재생성)
@@ -914,155 +889,7 @@ export async function resetDatabase(): Promise<void> {
   await closeWorker();
 }
 
-/**
- * 모든 설정 가져오기 (Issue #2: 서버-클라이언트 설정 동기화)
- */
-export function getAllSettings(): Record<string, any> {
 
-  try {
-    // 현재는 환경 변수 및 localStorage 기반이므로
-    // 향후 DB 테이블을 추가할 때를 대비해 구조만 반환
-    const newsRefreshInterval = Number(process.env.NEWS_REFRESH_INTERVAL_MIN) || 15;
-    const initialCash = Number(process.env.NEXT_PUBLIC_DEFAULT_INITIAL_CASH) || 1000000;
 
-    return {
-      newsRefreshInterval,
-      initialCash,
-      notificationEnabled: true,
-      telegramNotifications: !!process.env.TELEGRAM_BOT_TOKEN,
-    };
-  } catch (err) {
-    console.error('[cache] Error fetching settings:', err);
-    return {
-      newsRefreshInterval: 15,
-      initialCash: 1000000,
-    };
-  }
-}
 
-/**
- * 개별 설정 업데이트 (Issue #2: 서버-클라이언트 설정 동기화)
- * 향후 DB 저장 또는 .env 파일 수정으로 확장 가능
- */
-const dynamicSettings: Map<string, any> = new Map();
-
-export function updateSetting(key: string, value: any): void {
-  try {
-    // 현재는 메모리 기반, 향후 DB 또는 .env 파일로 확장
-    dynamicSettings.set(key, value);
-    console.log(`[settings] Updated ${key} = ${value}`);
-  } catch (err) {
-    console.error('[cache] Error updating setting:', err);
-  }
-}
-
-/**
- * 특정 설정값 조회 (메모리 또는 .env에서)
- */
-export function getSetting(key: string, defaultValue?: any): any {
-  // 우선 동적 설정에서 조회
-  if (dynamicSettings.has(key)) {
-    return dynamicSettings.get(key);
-  }
-
-  // 환경 변수에서 조회
-  const envKey = `NEWS_${key.toUpperCase()}` || `${key.toUpperCase()}`;
-  const envValue = process.env[envKey];
-  if (envValue !== undefined) {
-    return envValue;
-  }
-
-  return defaultValue;
-}
-
-/**
- * Issue #3: 알림 API 타임아웃 모니터링 메트릭
- * 응답 시간 및 타임아웃 빈도 추적
- */
-interface ApiResponseMetric {
-  endpoint: string;
-  responseTimeMs: number;
-  timestamp: number;
-  timedOut: boolean;
-  error?: string;
-}
-
-const apiMetrics: ApiResponseMetric[] = [];
-
-export function recordApiMetric(
-  endpoint: string,
-  responseTimeMs: number,
-  timedOut: boolean = false,
-  error?: string
-) {
-  const metric: ApiResponseMetric = {
-    endpoint,
-    responseTimeMs,
-    timestamp: Date.now(),
-    timedOut,
-    error,
-  };
-
-  apiMetrics.push(metric);
-
-  // 최근 1000개만 유지
-  if (apiMetrics.length > 1000) {
-    apiMetrics.shift();
-  }
-
-  // 타임아웃 또는 응답 시간 1500ms 초과 시 경고 로그
-  const RESPONSE_TIME_THRESHOLD = 1500;
-  if (timedOut) {
-    console.warn(`[API Timeout] ${endpoint}: ${responseTimeMs}ms (TIMEOUT)`, {
-      endpoint,
-      responseTimeMs,
-      timestamp: new Date(metric.timestamp).toISOString(),
-      error: error || 'Request timed out'
-    });
-  } else if (responseTimeMs > RESPONSE_TIME_THRESHOLD) {
-    console.warn(`[API Slow Response] ${endpoint}: ${responseTimeMs}ms (threshold: ${RESPONSE_TIME_THRESHOLD}ms)`, {
-      endpoint,
-      responseTimeMs,
-      timestamp: new Date(metric.timestamp).toISOString(),
-    });
-  }
-}
-
-export function getApiMetrics(endpoint?: string, lastNSeconds: number = 300): {
-  metrics: ApiResponseMetric[];
-  stats: {
-    totalRequests: number;
-    timeoutCount: number;
-    slowResponseCount: number;
-    avgResponseTimeMs: number;
-    maxResponseTimeMs: number;
-  };
-} {
-  const cutoffTime = Date.now() - (lastNSeconds * 1000);
-
-  // 필터링
-  let filtered = apiMetrics.filter(m => m.timestamp > cutoffTime);
-  if (endpoint) {
-    filtered = filtered.filter(m => m.endpoint === endpoint);
-  }
-
-  // 통계 계산
-  const RESPONSE_TIME_THRESHOLD = 1500;
-  const stats = {
-    totalRequests: filtered.length,
-    timeoutCount: filtered.filter(m => m.timedOut).length,
-    slowResponseCount: filtered.filter(m => m.responseTimeMs > RESPONSE_TIME_THRESHOLD).length,
-    avgResponseTimeMs: filtered.length > 0
-      ? Math.round(filtered.reduce((sum, m) => sum + m.responseTimeMs, 0) / filtered.length)
-      : 0,
-    maxResponseTimeMs: filtered.length > 0
-      ? Math.max(...filtered.map(m => m.responseTimeMs))
-      : 0,
-  };
-
-  return {
-    metrics: filtered,
-    stats,
-  };
-}
 

@@ -77,29 +77,10 @@ export default function AutoTrader() {
     }
   };
 
-  const [aiRecommendation, setAiRecommendation] = useState<any>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-
-  // AI Strategy State
-  const [selectedStrategy, setSelectedStrategy] = useState<string>('dca');
-  const [config, setConfig] = useState<any>({});
-
   // Trailing Stop State
-  const [useTrailingStop, setUseTrailingStop] = useState(false);
-  const [tsActivation, setTsActivation] = useState(5);
-  const [tsDistance, setTsDistance] = useState(2);
+  const [highPrices, setHighPrices] = useState<{ [market: string]: number }>({});
 
-  // Multi-Coin AI State
-  const [isMultiCoinMode, setIsMultiCoinMode] = useState(false);
-  const [multiCoinResults, setMultiCoinResults] = useState<any[]>([]);
-  const [selectedMultiMarkets, setSelectedMultiMarkets] = useState<string[]>([]);
-  const [processingMarket, setProcessingMarket] = useState<string | null>(null);
-
-  // Batch Backtest State
-  const [batchBacktestLoading, setBatchBacktestLoading] = useState(false);
-  const [batchBacktestResults, setBatchBacktestResults] = useState<any[]>([]);
-  
-  // Strategy Parameters State
+  // ... (existing form state)
   const [market, setMarket] = useState('KRW-BTC');
   const [dcaAmount, setDcaAmount] = useState('10000');
   const [dcaInterval, setDcaInterval] = useState('daily');
@@ -123,6 +104,22 @@ export default function AutoTrader() {
   const [aiInterval, setAiInterval] = useState('minute60');
   const [aiConfidence, setAiConfidence] = useState('0.7');
 
+  // AI Strategy State
+  const [selectedStrategy, setSelectedStrategy] = useState<string>('dca');
+  const [config, setConfig] = useState<any>({});
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiRecommendation, setAiRecommendation] = useState<any>(null);
+
+  // Multi-Coin AI State
+  const [isMultiCoinMode, setIsMultiCoinMode] = useState(false);
+  const [multiCoinResults, setMultiCoinResults] = useState<any[]>([]);
+  const [selectedMultiMarkets, setSelectedMultiMarkets] = useState<string[]>([]);
+  const [processingMarket, setProcessingMarket] = useState<string | null>(null);
+
+  // Batch Backtest State
+  const [batchBacktestLoading, setBatchBacktestLoading] = useState(false);
+  const [batchBacktestResults, setBatchBacktestResults] = useState<any[]>([]);
+
   useEffect(() => {
     const strategy = recommendedStrategies.find(s => s.id === selectedStrategy);
     if (strategy) {
@@ -130,13 +127,94 @@ export default function AutoTrader() {
     }
   }, [selectedStrategy]);
 
+  // Trailing Stop Logic
+  useEffect(() => {
+    if (!tickers || tickers.length === 0) return;
+
+    strategies.forEach(strategy => {
+      if (strategy.isActive && strategy.trailingStop && strategy.trailingStop.isActive) {
+        const ticker = tickers.find(t => t.market === strategy.market);
+        const asset = assets.find(a => a.market === strategy.market);
+
+        if (ticker && asset && asset.quantity > 0) {
+          const currentPrice = ticker.trade_price;
+          const avgBuyPrice = asset.avg_buy_price;
+          const currentProfitPct = ((currentPrice - avgBuyPrice) / avgBuyPrice) * 100;
+
+          // 1. Check activation
+          if (currentProfitPct >= strategy.trailingStop.activationPct) {
+            const currentHigh = highPrices[strategy.market] || 0;
+
+            // Update High Water Mark
+            if (currentPrice > currentHigh) {
+              setHighPrices(prev => ({ ...prev, [strategy.market]: currentPrice }));
+            }
+
+            // 2. Check Trailing Stop Condition
+            // Only check if we have a valid high price established after activation
+            if (currentHigh > 0) {
+              const dropFromHighPct = ((currentHigh - currentPrice) / currentHigh) * 100;
+
+              if (dropFromHighPct >= strategy.trailingStop.distancePct) {
+                console.log(`[${strategy.market}] 트레일링 스탑 발동! 고점(${currentHigh}) 대비 ${dropFromHighPct.toFixed(2)}% 하락. 매도 실행.`);
+
+                sellAsset(
+                  strategy.market,
+                  currentPrice,
+                  asset.quantity,
+                  strategy.id,
+                  'trailing_stop',
+                  true
+                );
+
+                // Reset high price after sell
+                setHighPrices(prev => {
+                  const newState = { ...prev };
+                  delete newState[strategy.market];
+                  return newState;
+                });
+
+                toast.success(`${strategy.market} 트레일링 스탑 매도 완료!`);
+              }
+            }
+          }
+        }
+      }
+    });
+  }, [tickers, strategies, assets, highPrices, sellAsset]);
+
   const availableMarkets = [
     'KRW-BTC', 'KRW-ETH', 'KRW-XRP', 'KRW-DOGE', 'KRW-SOL', 'KRW-ADA',
     'KRW-AVAX', 'KRW-DOT', 'KRW-MATIC', 'KRW-TRX', 'KRW-SHIB', 'KRW-ETC',
     'KRW-BCH', 'KRW-LINK'
   ];
 
+  // ... (rest of the component)
 
+  const strategySummary = useMemo(() => {
+    switch (strategyType) {
+      case 'dca':
+        return `${market.replace('KRW-', '')} | ${dcaInterval} | ${Number(dcaAmount).toLocaleString()}원`;
+      case 'ma':
+        return `${market.replace('KRW-', '')} | ${maShortPeriod}/${maLongPeriod}`;
+      case 'rsi':
+        return `${market.replace('KRW-', '')} | 기간 ${rsiPeriod} | ${rsiBuyThreshold}/${rsiSellThreshold}`;
+      case 'bband':
+        return `${market.replace('KRW-', '')} | 기간 ${bbandPeriod} 승수 ${bbandMultiplier}`;
+      case 'news':
+        return `${market.replace('KRW-', '')} | ${sentimentThreshold === 'positive' ? '긍정 뉴스 매수' : '부정 뉴스 매도'}`;
+      case 'volatility':
+        return `${market.replace('KRW-', '')} | 승수 ${volatilityMultiplier}`;
+      case 'momentum':
+        return `${market.replace('KRW-', '')} | 기간 ${momentumPeriod} | 임계값 ${momentumThreshold}%`;
+      case 'grid':
+        return `${market.replace('KRW-', '')} | ${Number(gridMinPrice).toLocaleString()}~${Number(gridMaxPrice).toLocaleString()} | ${gridLines}개`;
+      case 'ai_autonomous':
+        return `${market.replace('KRW-', '')} | AI 자율 매매 | 신뢰도 ${aiConfidence}+`;
+      default:
+        return '';
+    }
+  }, [strategyType, market, dcaInterval, dcaAmount, maShortPeriod, maLongPeriod, rsiPeriod, rsiBuyThreshold, rsiSellThreshold, bbandPeriod, bbandMultiplier, sentimentThreshold, volatilityMultiplier, momentumPeriod, momentumThreshold, gridMinPrice, gridMaxPrice, gridLines, aiInterval, aiConfidence]);
 
   const getStrategyConfig = () => {
     let strategyConfig: Omit<Strategy, 'id' | 'isActive'>;
@@ -217,45 +295,8 @@ export default function AutoTrader() {
       default:
         return null;
     }
-
-    if (useTrailingStop) {
-      strategyConfig.trailingStop = {
-        isActive: true,
-        activationPct: tsActivation,
-        distancePct: tsDistance,
-      };
-    }
     return strategyConfig;
   };
-
-  const strategySummary = useMemo(() => {
-    const config = getStrategyConfig();
-    if (!config) return '전략을 선택하세요.';
-
-    const parts = [
-      `전략: ${config.strategyType.toUpperCase()}`,
-      `마켓: ${config.market}`,
-    ];
-
-    switch (config.strategyType) {
-      case 'dca':
-        parts.push(`금액: ${config.amount}원`, `주기: ${config.interval}`);
-        break;
-      case 'ma':
-        parts.push(`단기: ${config.shortPeriod}`, `장기: ${config.longPeriod}`);
-        break;
-      case 'rsi':
-        parts.push(`기간: ${config.period}`, `매수점: ${config.buyThreshold}`, `매도점: ${config.sellThreshold}`);
-        break;
-      // ... 다른 전략 케이스 추가
-    }
-
-    if (useTrailingStop) {
-      parts.push(`트레일링 스탑: 활성 (시작: ${tsActivation}%, 거리: ${tsDistance}%)`);
-    }
-
-    return parts.join(' | ');
-  }, [strategyType, market, dcaAmount, dcaInterval, maShortPeriod, maLongPeriod, rsiPeriod, rsiBuyThreshold, rsiSellThreshold, useTrailingStop, tsActivation, tsDistance, getStrategyConfig]);
 
   const [isSyncingUpbit, setIsSyncingUpbit] = useState(false);
 
@@ -881,47 +922,6 @@ export default function AutoTrader() {
                   {renderCustomInputs()}
                 </div>
               </CollapsibleSection>
-              
-              {/* Trailing Stop Section for Simple Mode */}
-              <div className="Box p-3 mb-3 color-bg-default border" style={{ width: '100%', maxWidth: 720 }}>
-                <div className="d-flex flex-items-center mb-2">
-                    <input
-                        type="checkbox"
-                        id="trailingStopSimple"
-                        className="mr-2"
-                        checked={useTrailingStop}
-                        onChange={(e) => setUseTrailingStop(e.target.checked)}
-                    />
-                    <label htmlFor="trailingStopSimple" className="text-bold cursor-pointer">트레일링 스탑 (Trailing Stop) 활성화</label>
-                </div>
-
-                {useTrailingStop && (
-                    <div className="d-flex flex-wrap gutter-md mt-2 pl-4">
-                        <div className="col-12 col-md-6 mb-2">
-                            <label className="text-small d-block mb-1">감시 시작 수익률 (%)</label>
-                            <input
-                                type="number"
-                                className="form-control input-sm width-full"
-                                placeholder="예: 5"
-                                value={tsActivation}
-                                onChange={(e) => setTsActivation(parseFloat(e.target.value))}
-                            />
-                            <p className="note text-small">수익률이 이 값에 도달하면 추적을 시작합니다.</p>
-                        </div>
-                        <div className="col-12 col-md-6 mb-2">
-                            <label className="text-small d-block mb-1">하락 감지 비율 (%)</label>
-                            <input
-                                type="number"
-                                className="form-control input-sm width-full"
-                                placeholder="예: 2"
-                                value={tsDistance}
-                                onChange={(e) => setTsDistance(parseFloat(e.target.value))}
-                            />
-                            <p className="note text-small">고점 대비 이만큼 하락하면 매도합니다.</p>
-                        </div>
-                    </div>
-                )}
-              </div>
 
               <div className="d-flex flex-justify-center mt-3" style={{ width: '100%' }}>
                 <button type="submit" className="btn btn-primary" style={{ minWidth: 180 }}>전략 추가</button>

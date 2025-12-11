@@ -15,8 +15,8 @@ export async function POST() {
     const krwMarkets = accounts.filter(account => account.unit_currency === 'KRW' && parseFloat(account.balance) > 0);
 
     const statements = [
-      // 1. Clear previous AI-simulated transactions to start fresh
-      { sql: "DELETE FROM transactions WHERE source = 'ai_simulation' OR source = 'upbit_sync'", params: [] }
+      // 1. Clear all previous transactions to start fresh
+      { sql: "DELETE FROM transactions", params: [] }
     ];
 
     for (const account of krwMarkets) {

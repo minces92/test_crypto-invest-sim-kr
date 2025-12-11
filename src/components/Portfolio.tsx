@@ -1,8 +1,7 @@
-import { useState } from 'react';
+'use client';
+
 import { usePortfolio } from '@/context/PortfolioContext';
 import { useData } from '@/context/DataProviderContext';
-import SharePortfolioModal from './SharePortfolioModal';
-import toast from 'react-hot-toast';
 
 interface Ticker {
   market: string;
@@ -14,39 +13,8 @@ interface PortfolioProps {
 }
 
 export default function Portfolio({ handleOpenModal }: PortfolioProps) {
-  const { cash, assets, refreshTransactions } = usePortfolio();
+  const { cash, assets } = usePortfolio();
   const { tickers, loading: tickersLoading, error: tickersError } = useData();
-  const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [isSyncing, setIsSyncing] = useState(false);
-
-  const handleSync = async () => {
-    if (!confirm('업비트 계정과 연동하여 현재 자산을 불러오시겠습니까?\n기존 가상 거래 내역은 초기화될 수 있습니다.')) return;
-
-    setIsSyncing(true);
-    try {
-      const response = await fetch('/api/portfolio/sync-upbit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to sync Upbit wallet');
-      }
-
-      toast.success('업비트 자산 연동 완료');
-      refreshTransactions(); // Refresh portfolio data
-    } catch (error: any) {
-      console.error(error);
-      if (error.message.includes('UPBIT_ACCESS_KEY')) {
-        toast.error('API 키가 설정되지 않았습니다. .env 파일을 확인해주세요.');
-      } else {
-        toast.error('연동 실패: ' + error.message);
-      }
-    } finally {
-      setIsSyncing(false);
-    }
-  };
 
   const tickersMap = tickers.reduce((acc, ticker) => {
     acc[ticker.market] = ticker;
@@ -62,29 +30,15 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
 
   return (
     <div className="Box mb-4">
-      <div className="Box-header d-flex flex-justify-between flex-items-center">
+      <div className="Box-header">
         <h2 className="Box-title">내 포트폴리오</h2>
-        <button
-          className="btn btn-sm"
-          onClick={() => setIsShareModalOpen(true)}
-        >
-          <svg className="octicon octicon-share mr-1" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M7.28 2.22a.75.75 0 0 1 0 1.06L4.81 5.75h6.44a4.75 4.75 0 0 1 0 9.5H11a.75.75 0 0 1 0-1.5h.25a3.25 3.25 0 0 0 0-6.5H4.81l2.47 2.47a.75.75 0 1 1-1.06 1.06l-3.75-3.75a.75.75 0 0 1 0-1.06l3.75-3.75a.75.75 0 0 1 1.06 0Z"></path></svg>
-          공유하기
-        </button>
-        <button
-          className="btn btn-sm ml-2"
-          onClick={handleSync}
-          disabled={isSyncing}
-        >
-          {isSyncing ? '연동 중...' : '업비트 연동'}
-        </button>
       </div>
       <div className="Box-body">
         <div className="Box color-bg-subtle p-3 rounded-2 mb-3">
           <h5 className="f5 text-center"><strong>총 자산</strong></h5>
           <h3 className="f1 text-center text-bold mb-0">{totalValue.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</h3>
         </div>
-
+        
         <div className="d-flex flex-justify-between flex-items-center mb-3">
           <h6 className="f6 mb-0"><strong>보유 현금</strong></h6>
           <p className="text-normal mb-0">{cash.toLocaleString('ko-KR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} 원</p>
@@ -96,7 +50,7 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
             <button className="btn btn-sm" onClick={() => window.location.reload()}>다시 시도</button>
           </div>
         )}
-
+        
         <hr className="my-3" />
 
         <h6 className="f6 mb-2"><strong>보유 자산 목록</strong></h6>
@@ -135,11 +89,6 @@ export default function Portfolio({ handleOpenModal }: PortfolioProps) {
           </ul>
         )}
       </div>
-
-      <SharePortfolioModal
-        isOpen={isShareModalOpen}
-        onClose={() => setIsShareModalOpen(false)}
-      />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
-import { getCandlesWithCache, recordApiMetric } from '@/lib/cache';
+import { getCandlesWithCache } from '@/lib/cache';
+import { recordApiMetric } from '@/lib/monitoring';
 
 export async function GET(request: Request) {
   const startTime = performance.now();

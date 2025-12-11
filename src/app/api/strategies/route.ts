@@ -14,7 +14,7 @@ export async function GET() {
   try {
     const userId = 1;
     // Ensure table exists (handled by db-worker but good to be safe if query fails)
-    const strategies = await queryAll('SELECT * FROM active_strategies WHERE user_id = ? AND is_active = 1', [userId]) as any[];
+    const strategies = await queryAll('SELECT * FROM strategies WHERE user_id = ? AND is_active = 1', [userId]) as any[];
 
     // Transform back to Strategy object
     const parsedStrategies = strategies.map((s: any) => {
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
     const userId = 1;
 
     await run(`
-      INSERT INTO active_strategies (
+      INSERT INTO strategies (
         id, user_id, strategy_type, market, is_active, config
       ) VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(id) DO UPDATE SET
@@ -75,7 +75,7 @@ export async function DELETE(req: Request) {
       throw new AppError('MISSING_ID', 'ID required', 400);
     }
 
-    await run('DELETE FROM active_strategies WHERE id = ?', [id]);
+    await run('DELETE FROM strategies WHERE id = ?', [id]);
     return NextResponse.json({ success: true });
   } catch (error) {
     return handleApiError(error);

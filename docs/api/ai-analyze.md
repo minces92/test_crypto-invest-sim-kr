@@ -102,3 +102,4 @@
 - 디버깅 시 `.env.local`에서 `AI_LOG_ENABLED=true`를 설정하면 `logs/ai-debug.log`에 프롬프트와 응답이 저장됩니다.
 
 
+
